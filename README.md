@@ -13,13 +13,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases"><img src="https://img.shields.io/badge/release-v1.0.0%20draft-4daafc?style=flat-square" alt="v1.0.0 draft release"></a>
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases"><img src="https://img.shields.io/badge/release-v1.0.0-4daafc?style=flat-square" alt="v1.0.0 release"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d?style=flat-square" alt="Requires Node.js 22 or newer"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4daafc?style=flat-square" alt="MIT license"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases">v1.0.0 release draft</a> ·
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases/tag/v1.0.0">Download v1.0.0</a> ·
   <a href="USER_GUIDE.md">User guide</a> ·
   <a href="PRIVACY.md">Privacy</a> ·
   <a href="https://github.com/benedictusrey/Antigravity-Monitor/actions/workflows/ci.yml">Build checks</a> ·
