@@ -1,12 +1,34 @@
-# Antigravity Monitor
+<p align="center">
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor">
+    <img src="assets/branding/antigravity-monitor-logo.png" width="128" height="128" alt="Antigravity Monitor icon">
+  </a>
+</p>
+
+<h1 align="center">Antigravity Monitor</h1>
+
+<p align="center">
+  <strong>Know your context. Keep an eye on your model limits.</strong><br>
+  Local monitoring for Antigravity desktop, Antigravity IDE, and Visual Studio Code.<br>
+  Built with <code>TypeScript</code> and <code>Node.js</code>.
+</p>
+
+<p align="center">
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases"><img src="https://img.shields.io/badge/release-v1.0.0%20draft-4daafc?style=flat-square" alt="v1.0.0 draft release"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d?style=flat-square" alt="Requires Node.js 22 or newer"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4daafc?style=flat-square" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases">v1.0.0 release draft</a> ·
+  <a href="USER_GUIDE.md">User guide</a> ·
+  <a href="PRIVACY.md">Privacy</a> ·
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/actions/workflows/ci.yml">Build checks</a> ·
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/issues">Report an issue</a>
+</p>
 
 ![Antigravity Monitor showing actual context and quota readings](assets/banners/antigravity-monitor-hero.png)
 
-**Keep context usage, model limits, and the conversation on screen within reach.**
-
 Antigravity Monitor adds a small composer readout, a detail card, and a dashboard to Antigravity. It follows the visible conversation, distinguishes a new thread, and refreshes 5-hour and weekly quotas automatically. Native extensions add a status bar and dashboard inside Antigravity IDE and Visual Studio Code.
-
-[Download v1.0.0](https://github.com/benedictusrey/Antigravity-Monitor/releases/tag/v1.0.0) · [User guide](USER_GUIDE.md) · [Privacy](PRIVACY.md) · [Report an issue](https://github.com/benedictusrey/Antigravity-Monitor/issues)
 
 ## Get started
 
