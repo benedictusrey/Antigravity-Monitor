@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; img-src {{cspSource}} data:; style-src {{cspSource}}; script-src 'nonce-{{nonce}}';"
+  />
+  <link rel="stylesheet" href="{{cssUri}}" />
+  <title>Antigravity Monitor</title>
+</head>
+<body data-host="{{host}}">
+  <div class="shell">
+    <header class="topbar">
+      <div class="identity">
+        <h1>Antigravity Monitor</h1>
+        <p id="subtitle" class="subtitle">Connecting to Antigravity&hellip;</p>
+      </div>
+      <div class="topbar-actions">
+        <span id="status-chip" class="chip chip--neutral">Starting</span>
+        <button id="btn-refresh" class="btn btn--ghost" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist" aria-label="Dashboard sections">
+      <button class="tab" role="tab" data-tab="overview" id="tab-overview" aria-selected="true" aria-controls="pane-overview">Overview</button>
+      <button class="tab" role="tab" data-tab="sessions" id="tab-sessions" aria-selected="false" aria-controls="pane-sessions">Sessions</button>
+      <button class="tab" role="tab" data-tab="models" id="tab-models" aria-selected="false" aria-controls="pane-models">Models</button>
+      <button class="tab" role="tab" data-tab="settings" id="tab-settings" aria-selected="false" aria-controls="pane-settings">Settings</button>
+    </nav>
+
+    <main class="content">
+      <section id="pane-overview" class="pane" role="tabpanel" aria-labelledby="tab-overview" data-pane="overview"></section>
+      <section id="pane-sessions" class="pane" role="tabpanel" aria-labelledby="tab-sessions" data-pane="sessions" hidden></section>
+      <section id="pane-models" class="pane" role="tabpanel" aria-labelledby="tab-models" data-pane="models" hidden></section>
+      <section id="pane-settings" class="pane" role="tabpanel" aria-labelledby="tab-settings" data-pane="settings" hidden></section>
+    </main>
+
+    <footer class="footer">
+      <span id="footer-note">Readings come from the local Antigravity language server. Nothing leaves this machine.</span>
+    </footer>
+  </div>
+
+  <script nonce="{{nonce}}" src="{{jsUri}}"></script>
+</body>
+</html>

@@ -1,0 +1,166 @@
+{
+  "name": "antigravity-monitor",
+  "displayName": "Antigravity Monitor",
+  "description": "Live context-window, quota, and model telemetry for Antigravity conversations in the desktop app, Antigravity IDE, and VS Code.",
+  "version": "1.0.0",
+  "monitorBuild": "2026-11-06-release-final",
+  "publisher": "antigravity-monitor",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.107.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "antigravity",
+    "context window",
+    "tokens",
+    "quota",
+    "monitor"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/src/app/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "antigravityMonitor.openDashboard",
+        "title": "Open Dashboard",
+        "category": "Antigravity Monitor"
+      },
+      {
+        "command": "antigravityMonitor.refresh",
+        "title": "Refresh Now",
+        "category": "Antigravity Monitor"
+      },
+      {
+        "command": "antigravityMonitor.selectBackend",
+        "title": "Select Backend",
+        "category": "Antigravity Monitor"
+      },
+      {
+        "command": "antigravityMonitor.showDiagnostics",
+        "title": "Show Diagnostics",
+        "category": "Antigravity Monitor"
+      }
+    ],
+    "configuration": {
+      "title": "Antigravity Monitor",
+      "properties": {
+        "antigravityMonitor.pollIntervalMs": {
+          "type": "integer",
+          "default": 2000,
+          "minimum": 1000,
+          "maximum": 60000,
+          "markdownDescription": "How often to check Antigravity for conversation changes, in milliseconds. Trajectory contents are only re-read when a change is detected."
+        },
+        "antigravityMonitor.warningThreshold": {
+          "type": "integer",
+          "default": 80,
+          "minimum": 50,
+          "maximum": 100,
+          "markdownDescription": "Context usage percentage at or above which the status bar switches to the warning colour. Set to 100 to disable the warning."
+        },
+        "antigravityMonitor.showQuota": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the active model's remaining quota next to the context usage in the status bar."
+        },
+        "antigravityMonitor.maskPersonalInfo": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Mask the account name and e-mail address in the hover tooltip and dashboard."
+        },
+        "antigravityMonitor.quotaWarningThreshold": {
+          "type": "integer",
+          "default": 15,
+          "minimum": 0,
+          "maximum": 100,
+          "markdownDescription": "Warn when the remaining quota of the model in use falls to this percentage. Set to 0 to disable the warning."
+        },
+        "antigravityMonitor.displayMode": {
+          "type": "string",
+          "enum": [
+            "essentials",
+            "full",
+            "custom"
+          ],
+          "enumDescriptions": [
+            "Percentage only, on the status bar and the inline badge.",
+            "Percentage plus context figures.",
+            "Choose context, remaining tokens, 5-hour quota, weekly quota, model, and reset fields."
+          ],
+          "default": "full",
+          "markdownDescription": "How much detail the always-visible surfaces show. Tooltips and the dashboard stay detailed in either mode."
+        },
+        "antigravityMonitor.maxPayloadMb": {
+          "type": "integer",
+          "default": 128,
+          "minimum": 16,
+          "maximum": 1024,
+          "markdownDescription": "Maximum response size, in megabytes, accepted from the Antigravity backend. Oversized conversations are reported as unmeasurable rather than parsed."
+        },
+        "antigravityMonitor.snippetContext": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Include context used in Custom snippet mode."
+        },
+        "antigravityMonitor.snippetRemaining": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Include remaining context in Custom snippet mode."
+        },
+        "antigravityMonitor.snippetFiveHour": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Include the selected model group's live 5-hour quota in Custom snippet mode."
+        },
+        "antigravityMonitor.snippetWeekly": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Include the selected model group's live weekly quota in Custom snippet mode."
+        },
+        "antigravityMonitor.snippetModel": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Include the model name in Custom snippet mode."
+        },
+        "antigravityMonitor.snippetResets": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Append reset countdowns to selected quota fields in Custom snippet mode."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -p . --watch",
+    "test": "node --test \"out/tests/*.test.js\"",
+    "live": "node scripts/live-check.mjs",
+    "companion": "node tools/monitor-server.mjs",
+    "package": "vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/vscode": "1.107.0",
+    "@vscode/vsce": "4.1.0",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "minimatch": "11.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/benedictusrey/Antigravity-Monitor.git"
+  },
+  "homepage": "https://github.com/benedictusrey/Antigravity-Monitor",
+  "bugs": {
+    "url": "https://github.com/benedictusrey/Antigravity-Monitor/issues"
+  }
+}

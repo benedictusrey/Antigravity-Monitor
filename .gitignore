@@ -1,0 +1,13 @@
+node_modules/
+out/
+*.vsix
+*.exe
+*.log
+.DS_Store
+preview/
+.taste-skill/
+.audit-temp/
+release/
+docs/VALIDATION-*.md
+docs/superpowers/
+docs/PROMPT.md
