@@ -130,6 +130,7 @@ const monitorInstance = new Monitor({
   usageSummary: () => summariseUsage(buckets),
 });
 monitor = monitorInstance;
+latest = monitorInstance.getSnapshot();
 
 const nonce = randomBytes(24).toString('base64');
 
