@@ -42,6 +42,7 @@ const monitor = new Monitor({
     showQuota: true,
     maskPersonalInfo: true,
     maxPayloadMb: 128,
+    displayMode: 'full',
   }),
   onSnapshot: (snapshot) => {
     latest = snapshot;
@@ -81,7 +82,7 @@ async function main() {
   console.log('─'.repeat(64));
   monitor.start();
 
-  const ready = await waitFor(() => latest && latest.status === 'ok' && latest.conversation, TIMEOUT_MS);
+  const ready = await waitFor(() => latest && latest.status === 'ok' && latest.conversation?.usage, TIMEOUT_MS);
   monitor.stop();
 
   if (!latest) {

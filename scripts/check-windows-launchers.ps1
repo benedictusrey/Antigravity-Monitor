@@ -12,7 +12,7 @@ if([BitConverter]::ToInt32($sizeBytes,0) -ne $icns.Length){throw 'Invalid ICNS l
 foreach($name in @('Antigravity Monitor.exe','Install Antigravity Monitor.exe')){
     $file=Join-Path $root $name
     $version=[Diagnostics.FileVersionInfo]::GetVersionInfo($file)
-    if($version.ProductVersion -ne '1.0.0'){throw "Wrong version in $name"}
+    if($version.ProductVersion -ne '1.1.0'){throw "Wrong version in $name"}
     $icon=[Drawing.Icon]::ExtractAssociatedIcon($file)
     if(-not $icon){throw "Missing embedded icon in $name"}
     $bitmap=$icon.ToBitmap()
@@ -32,4 +32,4 @@ try {
     $process=Start-Process -FilePath $testFile -ArgumentList '--verify-launcher' -WindowStyle Hidden -Wait -PassThru
     if($process.ExitCode -ne 2){throw 'Missing companion command was not detected'}
 } finally {Remove-Item -LiteralPath $testFile -Force;Remove-Item -LiteralPath $temporary}
-Write-Output 'Launcher checks passed: embedded logo, v1.0.0 metadata, target checks, missing-file guard, ICO sizes, and ICNS structure.'
+Write-Output 'Launcher checks passed: embedded logo, v1.1.0 metadata, target checks, missing-file guard, ICO sizes, and ICNS structure.'

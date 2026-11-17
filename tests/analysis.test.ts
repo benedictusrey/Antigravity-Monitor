@@ -217,3 +217,52 @@ test('estimated readings never trigger compression detection', () => {
   ]);
   assert.equal(detector.observe('a', after), false);
 });
+
+test('selectedModelId tracks a mid-conversation model switch while modelId keeps the measured response model', () => {
+  const analysis = analyzeSteps([
+    userInputStep({ planModel: 'MODEL_PLACEHOLDER_M318' }),
+    plannerStep({ input: 1000, output: 100, model: 'MODEL_PLACEHOLDER_M318' }),
+    userInputStep({ planModel: 'MODEL_PLACEHOLDER_M525', text: 'switch model' }),
+  ]);
+  assert.equal(analysis.modelId, 'MODEL_PLACEHOLDER_M318');
+  assert.equal(analysis.selectedModelId, 'MODEL_PLACEHOLDER_M525');
+});
+
+test('computes decode tok/s from viewableAt to finishedGeneratingAt and falls back on sub-500ms windows', () => {
+  const decode = analyzeSteps([
+    {
+      type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',
+      metadata: {
+        createdAt: '2026-11-17T04:30:00.000Z',
+        viewableAt: '2026-11-17T04:30:20.000Z',
+        finishedGeneratingAt: '2026-11-17T04:30:30.000Z',
+        modelUsage: { inputTokens: 1000, outputTokens: 2200, responseOutputTokens: 2000, thinkingOutputTokens: 200 },
+      },
+    },
+  ]);
+  assert.equal(decode.measured?.tokPerSec, 200);
+
+  const subHalfSec = analyzeSteps([
+    {
+      type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',
+      metadata: {
+        createdAt: '2026-11-17T04:30:00.000Z',
+        viewableAt: '2026-11-17T04:30:09.700Z',
+        finishedGeneratingAt: '2026-11-17T04:30:10.000Z',
+        modelUsage: { inputTokens: 1000, outputTokens: 500, responseOutputTokens: 500 },
+      },
+    },
+  ]);
+  assert.equal(subHalfSec.measured?.tokPerSec, 50);
+
+  const noFinish = analyzeSteps([
+    {
+      type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',
+      metadata: {
+        createdAt: '2026-11-17T04:30:00.000Z',
+        modelUsage: { inputTokens: 1000, outputTokens: 500 },
+      },
+    },
+  ]);
+  assert.equal(noFinish.measured?.tokPerSec, null);
+});

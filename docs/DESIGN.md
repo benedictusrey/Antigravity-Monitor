@@ -1,12 +1,12 @@
-# v1.0.0 interface and visual design
+# v1.1.0 interface and visual design
 
 The main question is: does this reading belong to the conversation on screen?
 
-Objects: a renderer, its backend port, visible conversation identity, context used/remaining, measurement source, model quota, weekly account quota, and reading time. New thread, switching, unknown selection, disconnected, and measured conversation are separate states. Missing readings never mean zero usage or full quota. The UI is glanced at beside the composer, then opened for detail.
+Objects: a renderer, its backend port, visible conversation identity, parent/subagent hierarchy, context used/remaining, output speed (`tok/s`), token composition (fresh input, cache read, cache write, output), measurement source, model quota pool, weekly account quota, and reading time. New thread, switching, unknown selection, disconnected (`Standby`), and measured conversation are separate states. Missing readings never mean zero usage or full quota.
 
-Chosen direction: true-black flat with the host palette and type. The compact card follows the existing composer; the dashboard groups peer readings in rows. Four tabs keep navigation usable in a narrow editor panel. Wide windows use paired overview sections, dense facts, and two-column settings; narrow windows return to one column.
+Chosen direction: `data-terminal` architectural layout with crisp `1px` hairline divisions (`--border`, `--rule`) and a single `2px` `--accent` selection line, eliminating padded card voids while keeping host `--vscode-*` overrides intact for light, dark, and high-contrast themes. Wide viewports pair the `36px` context figure, threshold ruler, and composition bar flush against side-by-side `5-hour` / `Weekly` quota pools, followed by a 4-cell KPI strip (`Output speed`, `Cache hit ratio`, `Session API equiv.`, `Observed today`) and a balanced `Session ledger` / `Daily usage` split.
 
-Tokens: ground #101010, surface #202020, raised #2a2a2a, text #f5f5f5, secondary #b4b4b4, data blue #4daafc. Host CSS variables override these values for light and high-contrast themes. Use the host sans face, 14px data, 12px metadata, 24-30px primary readings, and tabular figures. No remote fonts or decorative animation.
+Tokens: dark ground `#111216`, surface `#16181e`, alt `#1b1e26`, border `#252833`, text `#f2f4f8`, muted `#8b91a0`, signal blue `#4a8ad6`; light ground `#f3f5f8`, surface `#ffffff`, alt `#f0f2f6`, border `#d8dde6`, text `#111318`, muted `#505766`, signal blue `#0957c3`. Tabular figures everywhere; no remote fonts, no resting shadows, no gradients.
 
 The visible conversation state becomes the card's primary reading. This differs from the old percentage-first design: a new thread is named explicitly rather than represented by an old percentage or invented zero.
 

@@ -1,32 +1,23 @@
-# Antigravity Monitor v1.0.0
+# Antigravity Monitor v1.1.0
 
-Antigravity Monitor keeps context usage, model quotas, and the conversation on screen within reach. The white desktop app uses a background companion; Antigravity IDE and VS Code also have native status-bar and dashboard surfaces.
+Antigravity Monitor keeps context usage, model quotas, and the active conversation thread on screen within reach. The white desktop app uses a background companion that activates automatically alongside Antigravity; Antigravity IDE and VS Code also have native status-bar and dashboard surfaces.
 
 ## Highlights
 
-- Visible-thread recognition with explicit new-thread and waiting states.
-- Automatically refreshed 5-hour and weekly quotas, separated by model group.
-- Custom snippets for context, remaining tokens, both limits, model identity, and reset countdowns.
-- A compact detail card, four dashboard sections, and a scalable lift-and-telemetry logo.
-- Local usage history, measured-versus-estimated context, and clear unavailable states.
-- Windows installation and startup integration, plus macOS/Linux companion installers and startup implementations.
+- **Output generation speed (`tok/s` snippet):** Measures provider output rate accurately from response decode windows (`viewableAt` -> `finishedGeneratingAt`, with full-turn fallback for sub-500ms windows) and exposes it across Custom snippets, status bar tooltip, Overview KPI strip, and Session ledger.
+- **Automatic new-model & quota-pool discovery:** New backend models (`Gemini 4 Argon`, `Gemini 4 Hydrogen`, `Gemini 4 Carbon`, `Orchestrator (Argon)`, `Gemini 3.8 Flash`, `Claude Opus 5.5`, `Claude Sonnet 5.5`, `GPT-OSS 120B`, and future releases) and separate quota pools (`Gemini Models`, `Gemini 4 Argon`, `Claude and GPT models`) appear automatically without manual updates.
+- **Active thread & subagent awareness:** Separates top-level conversations from child subagents (`Threads` tab), nests subagents under parent threads, supports instant search and pinning/auto-following, and tracks mid-conversation model switches cleanly.
+- **Auto-activation & universal installers:** Watches `DevToolsActivePort`, wakes alongside Antigravity IDE / VS Code on extension activation, and ships hardened Windows (`.exe`/`.cmd`), macOS (`.command`), and Linux (`.sh`) installers with automatic POSIX `node` lookup and VS Code Insiders support.
+- **`data-terminal` dashboard redesign:** Eliminated redundant card padding and blank voids in favor of a tight hairline-ruled interface supporting light/dark companion themes and `--vscode-*` editor inheritance.
 
-## Reliability work
+## Reliability & audit fixes
 
-Slow trajectory reads no longer stall healthy backend summary cycles. Canceled and replaced backend results cannot restore stale readings. Quota alerts stay armed until their model is active. Raising the response limit retries a previously oversized conversation. Native usage files use atomic replacement. The companion rejects unrelated Host values, cross-origin or non-JSON commands, unsafe RPC destinations, and unknown media paths.
-
-The locked build dependency tree was audited after updating its affected glob matcher. The companion itself has no third-party runtime dependencies.
+Fixed `pollInstance` `previousStepCounts` tracking during `new-thread` early returns and running peer daily usage recording, updated companion `SHIM` to pull immediately after `POST /api/command`, preserved badge density across conversation switches (`VERSION = 21`), used `selectedModelId` in active quota warnings, fixed standby status misreporting (`disconnected`), preserved cached conversation analysis on focus/pinning, fixed Windows installer `/api/health` preflight and `$PSScriptRoot` binding, and removed unused helpers.
 
 ## Install
 
-Windows packages include **Install Antigravity Monitor.exe** and **Antigravity Monitor.exe** with the project logo. These launch the readable commands beside them. Keep the complete extracted folder together. Installed Start Menu and Startup shortcuts use the same branded ICO.
-
-Download and extract **Antigravity-Monitor-1.0.0-companion.zip**, install Node.js 22 or newer, and run the platform installer. Keep the folder together. Native editor users can install **antigravity-monitor-1.0.0.vsix** directly; the white desktop app still needs the companion.
-
-Read [the user guide](https://github.com/benedictusrey/Antigravity-Monitor/blob/main/USER_GUIDE.md) and compare package hashes against `SHA256SUMS.txt` before installation. The current packages are unsigned.
+Platform-specific universal packages (**Antigravity-Monitor-1.1.0-windows.zip**, **Antigravity-Monitor-1.1.0-macos.zip**, **Antigravity-Monitor-1.1.0-linux.zip**) and the combined **Antigravity-Monitor-1.1.0-companion.zip** include the runtime, **antigravity-monitor-1.1.0.vsix**, and native installers (`Install Antigravity Monitor.exe` / `.cmd`, `Install Antigravity Monitor.command`, `Install Antigravity Monitor.sh`) with executable permissions preserved for macOS/Linux. Node.js 22+ is required. Compare hashes against `SHA256SUMS.txt` before installation.
 
 ## Verification and limits
 
-Windows has local execution evidence, including a real companion process restart and settings persistence. Shared discovery and platform paths have automated tests. **Native macOS/Linux startup and app attachment remain unverified** and need platform acceptance. Quotas use five-second polling when healthy; latency and failure backoff can delay updates.
-
-The repository banners use actual running UI captures and omit release version text. Values shown are observations at capture time. See the repository audit for the exact tested scope and remaining limits.
+Windows verification includes compilation, **214** passing unit/integration tests, `lint.mjs --app` (`0 FAIL`), rebuilt Windows launcher verification, headless dark/light browser screenshots across all 4 tabs, live `Antigravity.exe` backend verification, and local Windows installation. **Native macOS and Linux runtime execution remain unverified** without native hardware runs.

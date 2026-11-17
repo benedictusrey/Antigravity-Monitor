@@ -134,4 +134,12 @@ test('custom native status includes independent live 5h and weekly fields', () =
   assert.match(statusText(state as never), /5h 94\.6%.*Week 98\.4%/);
   assert.doesNotMatch(statusText(state as never), /10\.4%/);
   assert.match((tooltipFor(state as never) as unknown as { value: string }).value, /Weekly quota.*98\.4%/);
+
+  const withRate = {
+    ...state,
+    conversation: { ...state.conversation, usage: { ...state.conversation.usage, tokPerSec: 214.3 } },
+    prefs: { ...state.prefs, snippetTokPerSec: true },
+  };
+  assert.match(statusText(withRate as never), /214 tok\/s/);
+  assert.match((tooltipFor(withRate as never) as unknown as { value: string }).value, /Output speed \| `214 tok\/s`/);
 });

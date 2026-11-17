@@ -1,6 +1,7 @@
 [CmdletBinding()]
-param([string]$PackageRoot = (Split-Path -Parent $PSScriptRoot), [string]$VsixPath)
+param([string]$PackageRoot, [string]$VsixPath)
 $ErrorActionPreference = 'Stop'
+if (-not $PackageRoot) { $PackageRoot = Split-Path -Parent $PSScriptRoot }
 $PackageRoot = (Resolve-Path -LiteralPath $PackageRoot).Path
 $manifest = Get-Content -LiteralPath (Join-Path $PackageRoot 'package.json') -Raw | ConvertFrom-Json
 if (-not $VsixPath) { $VsixPath = Join-Path $PackageRoot ('antigravity-monitor-' + $manifest.version + '.vsix') }
@@ -13,7 +14,8 @@ foreach ($relative in @('out\src\app\monitor.js', 'tools\monitor-server.mjs', 't
 }
 $editors = @(
     @{ Name = 'Antigravity IDE'; Command = 'antigravity-ide.cmd'; Folder = 'Antigravity IDE' },
-    @{ Name = 'Visual Studio Code'; Command = 'code.cmd'; Folder = 'Microsoft VS Code' }
+    @{ Name = 'Visual Studio Code'; Command = 'code.cmd'; Folder = 'Microsoft VS Code' },
+    @{ Name = 'Visual Studio Code Insiders'; Command = 'code-insiders.cmd'; Folder = 'Microsoft VS Code Insiders' }
 )
 $installers = @()
 foreach ($editor in $editors) {
@@ -36,8 +38,8 @@ if ($listener) {
     if ($process.Name -ne 'node.exe' -or $process.CommandLine -notmatch 'monitor-server\.mjs(?:"|\s|$)') {
         throw 'Port 4599 belongs to another program. No process was stopped.'
     }
-    $snapshot = Invoke-RestMethod -Uri 'http://127.0.0.1:4599/api/snapshot' -TimeoutSec 3
-    if (-not $snapshot.snapshot -or -not $snapshot.snapshot.prefs) { throw 'Existing service was not recognized as Antigravity Monitor.' }
+    $health = Invoke-RestMethod -Uri 'http://127.0.0.1:4599/api/health' -TimeoutSec 3
+    if ($health.service -ne 'antigravity-monitor') { throw 'Existing service was not recognized as Antigravity Monitor.' }
     $stateFile = Join-Path $installRoot 'state.json'
     if (Test-Path -LiteralPath $stateFile) {
         New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
@@ -87,6 +89,15 @@ $menuShortcut.WorkingDirectory = $appRoot
 $menuShortcut.IconLocation = (Join-Path $appRoot 'media\icon.ico') + ',0'
 $menuShortcut.Description = 'Open the local Antigravity Monitor dashboard.'
 $menuShortcut.Save()
+try {
+    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    if (Test-Path -LiteralPath $runKey) {
+        $runCmd = '"' + (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') + '" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $appRoot 'tools\start-companion.ps1') + '"'
+        Set-ItemProperty -LiteralPath $runKey -Name 'AntigravityMonitor' -Value $runCmd
+    }
+} catch {
+    Write-Output ('Registry startup registration skipped: ' + $_.Exception.Message)
+}
 $failures = @()
 foreach ($editor in $installers) {
     Write-Output ('Installing into ' + $editor.Name + '...')

@@ -11,6 +11,7 @@ export interface QuotaBucket {
 export interface QuotaGroup {
   id: string;
   label: string;
+  description?: string | null;
   buckets: QuotaBucket[];
 }
 
@@ -52,20 +53,81 @@ export function parseQuotaSummary(payload: unknown): QuotaGroup[] {
     }
     if (buckets.length) {
       const id = (asString(group.groupId) ?? label.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 160);
-      if (!groups.some((entry) => entry.id === id)) groups.push({ id, label: label.slice(0, 160), buckets });
+      const description = asString(group.description)?.slice(0, 300) ?? null;
+      if (!groups.some((entry) => entry.id === id)) {
+        groups.push({ id, label: label.slice(0, 160), description, buckets });
+      }
     }
   }
   return groups;
 }
 
+function isArgonGroup(group: QuotaGroup): boolean {
+  return /argon/i.test(group.label) || group.buckets.some((bucket) => /argon/i.test(bucket.id));
+}
+
+function stripModelModifiers(modelName: string): string {
+  return modelName
+    .replace(/\s*\((?:high|medium|low|xhigh|thinking|orchestrator|argon)\)\s*/gi, ' ')
+    .replace(/\s+(?:high|medium|low|xhigh|thinking|orchestrator)\s*$/i, '')
+    .trim();
+}
+
+export interface QuotaGroupHint {
+  resetsAt?: string | null;
+  percent?: number | null;
+}
+
 /** Model families must never inherit another family's lower or fuller allowance. */
-export function resolveQuotaGroup(groups: QuotaGroup[], modelName: string | null | undefined): QuotaGroup | null {
+export function resolveQuotaGroup(
+  groups: QuotaGroup[],
+  modelName: string | null | undefined,
+  hint?: QuotaGroupHint | null,
+): QuotaGroup | null {
+  if (!modelName && !hint?.resetsAt) return null;
+
+  if (hint?.resetsAt) {
+    const hintMs = Date.parse(hint.resetsAt);
+    if (Number.isFinite(hintMs)) {
+      const byReset = groups.filter((group) =>
+        group.buckets.some((bucket) => bucket.resetsAt && Math.abs(Date.parse(bucket.resetsAt) - hintMs) <= 120_000),
+      );
+      if (byReset.length === 1) return byReset[0];
+      if (byReset.length > 1 && typeof hint.percent === 'number') {
+        const byPercent = byReset.filter((group) =>
+          group.buckets.some((bucket) => bucket.percent !== null && Math.abs(bucket.percent - hint.percent!) <= 2),
+        );
+        if (byPercent.length === 1) return byPercent[0];
+      }
+    }
+  }
+
   if (!modelName) return null;
-  const family = /gemini/i.test(modelName) ? 'gemini' : /claude|gpt|openai/i.test(modelName) ? 'third-party' : null;
+  if (/argon/i.test(modelName)) {
+    const argonMatches = groups.filter(isArgonGroup);
+    return argonMatches.length === 1 ? argonMatches[0] : null;
+  }
+
+  const baseName = stripModelModifiers(modelName).toLowerCase();
+  if (baseName.length >= 4) {
+    const described = groups.filter(
+      (group) => !isArgonGroup(group) && (group.description ?? '').toLowerCase().includes(baseName),
+    );
+    if (described.length === 1) return described[0];
+  }
+
+  const family = /gemini/i.test(modelName)
+    ? 'gemini'
+    : /claude|gpt|openai|opus|sonnet/i.test(modelName)
+      ? 'third-party'
+      : null;
   if (!family) return null;
-  const matches = groups.filter((group) => family === 'gemini'
-    ? /gemini/i.test(group.label) || group.buckets.some((bucket) => /^gemini-/.test(bucket.id))
-    : /claude|gpt/i.test(group.label) || group.buckets.some((bucket) => /^3p-/.test(bucket.id)));
+
+  const matches = groups.filter((group) =>
+    family === 'gemini'
+      ? !isArgonGroup(group) && (/gemini/i.test(group.label) || group.buckets.some((bucket) => /^gemini-/.test(bucket.id)))
+      : /claude|gpt/i.test(group.label) || group.buckets.some((bucket) => /^3p-/.test(bucket.id)),
+  );
   return matches.length === 1 ? matches[0] : null;
 }
 
@@ -81,9 +143,10 @@ export function quotaBucket(
   modelName: string | null | undefined,
   window: QuotaBucket['window'],
   now: number = Date.now(),
+  hint?: QuotaGroupHint | null,
 ): QuotaBucket | null {
   if (!state || quotaAt(state, now).status === 'unavailable') return null;
-  const bucket = resolveQuotaGroup(state.groups, modelName)?.buckets.find((entry) => entry.window === window);
+  const bucket = resolveQuotaGroup(state.groups, modelName, hint)?.buckets.find((entry) => entry.window === window);
   if (!bucket?.enabled || bucket.percent === null) return null;
   if (bucket.resetsAt && Date.parse(bucket.resetsAt) <= now) return null;
   return bucket;

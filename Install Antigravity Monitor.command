@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec node "$script_dir/tools/install-posix.mjs" "$@"
+exec sh "$script_dir/Install Antigravity Monitor.sh" "$@"

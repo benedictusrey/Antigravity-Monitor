@@ -28,7 +28,7 @@ export type InboundMessage =
   | { type: 'refresh' }
   | { type: 'diagnostics' }
   | { type: 'selectBackend'; id: string }
-  | { type: 'selectSession'; id: string }
+  | { type: 'selectSession'; id: string | null }
   | { type: 'updateSetting'; key: SettingKey; value: string | number | boolean };
 
 const MAX_ID_LENGTH = 200;
@@ -50,13 +50,23 @@ export function parseMessage(value: unknown): InboundMessage | null {
     case 'diagnostics':
       return { type: record.type };
 
-    case 'selectBackend':
-    case 'selectSession': {
+    case 'selectBackend': {
       const id = record.id;
       if (typeof id !== 'string' || id.length === 0 || id.length > MAX_ID_LENGTH) {
         return null;
       }
-      return { type: record.type, id };
+      return { type: 'selectBackend', id };
+    }
+
+    case 'selectSession': {
+      const id = record.id;
+      if (id === null) {
+        return { type: 'selectSession', id: null };
+      }
+      if (typeof id !== 'string' || id.length === 0 || id.length > MAX_ID_LENGTH) {
+        return null;
+      }
+      return { type: 'selectSession', id };
     }
 
     case 'updateSetting': {

@@ -13,13 +13,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases"><img src="https://img.shields.io/badge/release-v1.0.0-4daafc?style=flat-square" alt="v1.0.0 release"></a>
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases"><img src="https://img.shields.io/badge/release-v1.1.0-4daafc?style=flat-square" alt="v1.1.0 release"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d?style=flat-square" alt="Requires Node.js 22 or newer"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4daafc?style=flat-square" alt="MIT license"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases/tag/v1.0.0">Download v1.0.0</a> ·
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases/tag/v1.1.0">Download v1.1.0</a> ·
   <a href="USER_GUIDE.md">User guide</a> ·
   <a href="PRIVACY.md">Privacy</a> ·
   <a href="https://github.com/benedictusrey/Antigravity-Monitor/actions/workflows/ci.yml">Build checks</a> ·
@@ -28,17 +28,17 @@
 
 ![Antigravity Monitor showing actual context and quota readings](assets/banners/antigravity-monitor-hero.png)
 
-Antigravity Monitor adds a small composer readout, a detail card, and a dashboard to Antigravity. It follows the visible conversation, distinguishes a new thread, and refreshes 5-hour and weekly quotas automatically. Native extensions add a status bar and dashboard inside Antigravity IDE and Visual Studio Code.
+Antigravity Monitor adds a small composer readout, a detail card, and a dashboard to Antigravity. It follows the visible conversation, distinguishes new threads and child subagents, automatically discovers new models and quota pools from the local backend, and refreshes 5-hour and weekly quotas continuously. Native extensions add a status bar and dashboard inside Antigravity IDE and Visual Studio Code.
 
 ## Get started
 
-Download **Antigravity-Monitor-1.0.0-companion.zip**, extract the entire folder, and keep its files together. Install [Node.js 22 or newer](https://nodejs.org/) first. No administrator or sudo access is needed.
+Download the archive for your OS (**Antigravity-Monitor-1.1.0-windows.zip**, **Antigravity-Monitor-1.1.0-macos.zip**, or **Antigravity-Monitor-1.1.0-linux.zip**) — or **Antigravity-Monitor-1.1.0-companion.zip** for all platforms together — extract the entire folder, and keep its files together. Install [Node.js 22 or newer](https://nodejs.org/) first. No administrator or sudo access is needed.
 
 | Platform | Install from the extracted folder | Startup |
 |---|---|---|
-| **Windows** | Open **Install Antigravity Monitor.exe**. The readable `.cmd` remains available. | Current user's Startup shortcut. |
-| **macOS** | In Terminal, run `sh "Install Antigravity Monitor.command"`. | User LaunchAgent loaded with `launchctl`. |
-| **Linux** | In a graphical desktop session, run `sh "Install Antigravity Monitor.sh"`. | XDG desktop autostart entry. |
+| **Windows** | Open **Install Antigravity Monitor.exe** (or `.cmd`). | Current user Startup shortcut, Run registry entry, and VS Code / Antigravity IDE / Insiders VSIX. |
+| **macOS** | Double-click **Install Antigravity Monitor.command** or run `sh "Install Antigravity Monitor.command"`. | Auto-locates `node` (Homebrew, nvm, fnm, volta), sets LaunchAgent, installs editor VSIX. |
+| **Linux** | Run `./"Install Antigravity Monitor.sh"` (or `sh "Install Antigravity Monitor.sh"`). | Auto-locates `node`, adds XDG autostart + desktop app entry, installs editor VSIX. |
 
 Open Antigravity normally. The companion stays separate from the app and reconnects when its local backend and DevTools endpoint become available. The dashboard is at **http://127.0.0.1:4599**. Installers also install the included VSIX into supported editor CLIs they find; reload editor windows afterward.
 
@@ -57,11 +57,11 @@ The Windows EXE launchers embed the project logo and call the commands beside th
 
 | Feature | What it tells you |
 |---|---|
-| **Context window** | Used, remaining, and capacity tokens. Readings identify provider measurements and local estimates. |
+| **Context & speed** | Used, remaining, capacity tokens, cache hit ratio, and measured output `tok/s` rate. |
 | **Conversation awareness** | The visible thread, a new thread, or an unidentified selection. Delayed data from another thread is rejected. |
-| **Live quotas** | Separate 5-hour and weekly limits for Gemini and Claude/GPT groups, with reset countdowns and freshness. |
+| **Live quotas** | Separate 5-hour and weekly limits for Gemini, Gemini Argon, and Claude/GPT quota pools, with reset countdowns and freshness. |
 | **Multiple apps** | Each discovered app keeps its own conversation. Choose an app in the dashboard to follow it. |
-| **Sessions and models** | Conversation summaries, model capacities, and available quota information. |
+| **Threads and models** | Parent/subagent hierarchy with instant search, plus automatic model catalogue and quota-pool discovery. |
 | **Usage history** | Locally observed token totals and an API-equivalent cost estimate where pricing is available. |
 | **Compact controls** | Open details, refresh readings, copy a summary, or choose what stays in the snippet. |
 
@@ -71,7 +71,7 @@ Healthy quota requests run every five seconds, independently of transcript reads
 
 ![Actual customization controls and composer snippet](assets/banners/antigravity-monitor-customization.png)
 
-Click the composer readout, then expand **Customize snippet**. Choose context used, context remaining, 5-hour quota, weekly quota, model name, and reset countdowns. Changes preview immediately and save automatically. **Essentials** and **Full** remain quick presets.
+Click the composer readout, then expand **Customize snippet**. Choose context used, context remaining, 5-hour quota, weekly quota, model name, reset countdowns, and output `tok/s`. Changes preview immediately and save automatically. **Essentials** and **Full** remain quick presets.
 
 The companion's preferences apply to its inline snippets across connected apps. Each native editor extension keeps its own status-bar preferences. Long snippets truncate within the composer; detailed readings remain available in the tooltip and card.
 
@@ -94,7 +94,7 @@ npm run package
 
 The companion has no third-party runtime dependencies. Development tools are pinned in the lockfile. Run `npm run live` against a running Antigravity backend for local integration checks; its diagnostic output may include conversation titles.
 
-See [Architecture](docs/ARCHITECTURE.md), [Audit and validation](docs/AUDIT.md), and [Release preparation](RELEASING.md) for implementation details and verification limits. The source, extension package, companion, and current release files use **v1.0.0**.
+See [Architecture](docs/ARCHITECTURE.md), [Audit and validation](docs/AUDIT.md), and [Release preparation](RELEASING.md) for implementation details and verification limits. The source, extension package, companion, and current release files use **v1.1.0**.
 
 On Windows, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-launchers.ps1` before installing from source or building a complete companion release. Building needs the Windows .NET Framework C# compiler. Downloaded packages already contain the launchers and need no compiler. Run `scripts/check-windows-launchers.ps1` to verify embedded icons and launch targets.
 

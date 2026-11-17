@@ -300,3 +300,32 @@ test('the signature changes with every field that implies new content', () => {
   );
   assert.notEqual(signatureOf({ ...conversation, stepCount: 6 }), signatureOf(conversation));
 });
+
+test('subagent trajectories are marked and top-level threads take precedence', () => {
+  const list = parseTrajectories({
+    trajectorySummaries: {
+      sub1: {
+        summary: 'Untitled conversation',
+        stepCount: 20,
+        status: 'CASCADE_RUN_STATUS_RUNNING',
+        lastModifiedTime: '2026-11-17T03:00:00Z',
+        trajectoryMetadata: { rootConversationId: 'main1', workspaceUris: ['file:///c%3A/repo/My%20App'] },
+      },
+      main1: {
+        summary: 'Main thread',
+        stepCount: 50,
+        status: 'CASCADE_RUN_STATUS_IDLE',
+        lastModifiedTime: '2026-11-17T02:59:00Z',
+        annotations: { lastUserViewTime: '2026-11-17T03:01:00Z' },
+        trajectoryMetadata: { rootConversationId: 'main1' },
+      },
+    },
+  });
+
+  const sub = list.find((item) => item.id === 'sub1');
+  const main = list.find((item) => item.id === 'main1');
+  assert.equal(sub?.isSubagent, true);
+  assert.equal(sub?.workspace, 'My App');
+  assert.equal(main?.isSubagent, false);
+  assert.equal(chooseConversation(list, new Map(), null)?.conversation.id, 'main1');
+});

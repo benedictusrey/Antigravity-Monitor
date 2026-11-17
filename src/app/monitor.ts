@@ -32,6 +32,8 @@ import {
   PickerModel,
   buildCatalog,
   estimateCost,
+  matchModelByName,
+  mergePickerIntoCatalog,
   parseUserStatus,
   quotaFor,
   resolveModel,
@@ -48,7 +50,7 @@ import {
 } from '../core/select';
 import { asArray, dig } from '../core/values';
 import { UsageRecord } from '../core/usage';
-import { QuotaState, QUOTA_POLL_MS, emptyQuota, parseQuotaSummary, quotaAt, quotaBucket } from '../core/quota';
+import { QuotaState, QUOTA_POLL_MS, emptyQuota, parseQuotaSummary, quotaAt, quotaBucket, resolveQuotaGroup } from '../core/quota';
 import { SnippetPrefs, snippetPreferences } from '../core/snippet';
 import type { DisplayMode } from '../core/presentation';
 
@@ -101,6 +103,7 @@ interface InstanceState {
   activeConversationId: string | null;
   /** Conversation the host's own window has open, reported by the badge bridge. */
   observedConversationId: string | null;
+  observedModelName?: string | null;
   observationState?: 'conversation' | 'new-thread' | 'unknown';
   observedAt?: number;
   previousStepCounts: Map<string, number>;
@@ -111,7 +114,7 @@ const STATUS_REFRESH_MS = 60_000;
 const SUMMARY_TIMEOUT_MS = 8_000;
 const STEPS_TIMEOUT_MS = 45_000;
 const DISCOVERY_TIMEOUT_MS = 12_000;
-const MAX_BACKOFF_DISCOVERY_MS = 15_000;
+const MAX_BACKOFF_DISCOVERY_MS = 4_000;
 const MAX_BACKOFF_RPC_MS = 60_000;
 
 export class Monitor {
@@ -152,6 +155,7 @@ export class Monitor {
   private failureCount = 0;
   private lastFailureKind: 'discovery' | 'rpc' = 'rpc';
   private lastError: string | null = null;
+  private standbyLogged = false;
   private discoveryNotes: string[] = [];
   private lastSuccessAt = 0;
 
@@ -194,6 +198,14 @@ export class Monitor {
     this.quotaAborter = null;
   }
 
+  /** Wake discovery immediately when a local app or DevTools endpoint appears. */
+  nudgeDiscovery(): void {
+    if (this.disposed) return;
+    this.needDiscovery = true;
+    this.failureCount = 0;
+    this.schedule(0);
+  }
+
   /** Force an immediate refresh, discarding any in-flight request. */
   refreshNow(): void {
     if (this.disposed) {
@@ -205,6 +217,7 @@ export class Monitor {
     this.analysisAborter = new AbortController();
     this.generation += 1;
     this.failureCount = 0;
+    this.standbyLogged = false;
     this.analysisCache.clear();
     this.compression.clear();
     this.compressedUntil.clear();
@@ -293,7 +306,9 @@ export class Monitor {
     this.pinnedBackendId = id;
     this.pinnedConversationId = null;
     this.focusTargetId = id;
-    this.refreshNow();
+    this.chooseFocus();
+    this.publish();
+    this.schedule(0);
   }
 
   pinConversation(id: string | null): void {
@@ -310,7 +325,8 @@ export class Monitor {
         cached.signature = '';
       }
     }
-    this.refreshNow();
+    this.publish();
+    this.schedule(0);
   }
 
   /**
@@ -324,6 +340,7 @@ export class Monitor {
     backendPort: number,
     conversationId: string | null,
     viewState: 'conversation' | 'new-thread' | 'unknown' = conversationId ? 'conversation' : 'new-thread',
+    modelName: string | null = null,
   ): void {
     if (!Number.isInteger(backendPort)) {
       return;
@@ -335,10 +352,19 @@ export class Monitor {
     if (!instance) {
       return;
     }
+    const normalizedModel = typeof modelName === 'string' && modelName.trim().length > 0 ? modelName.trim() : null;
+    if (normalizedModel && !matchModelByName(normalizedModel, this.catalog, this.picker)) {
+      this.lastStatusRefresh = 0;
+    }
     instance.observedAt = Date.now();
-    if (instance.observedConversationId === conversationId && instance.observationState === viewState) return;
+    if (
+      instance.observedConversationId === conversationId &&
+      instance.observationState === viewState &&
+      (instance.observedModelName ?? null) === normalizedModel
+    ) return;
     instance.observedConversationId = conversationId;
     instance.observationState = viewState;
+    instance.observedModelName = normalizedModel;
     if (conversationId === null) {
       // An observed empty page must clear the previous selection immediately.
       instance.activeConversationId = null;
@@ -495,48 +521,69 @@ export class Monitor {
 
     if (conversations.length === 0) {
       state.activeConversationId = null;
+      state.previousStepCounts.clear();
       return;
     }
 
-    const observationFresh = Date.now() - (state.observedAt ?? 0) < 5_000;
-    const pinned =
-      state.target.id === this.focusTargetId &&
-      this.pinnedConversationId &&
-      conversations.some((conversation) => conversation.id === this.pinnedConversationId)
-        ? this.pinnedConversationId
+    try {
+      const observationFresh = Date.now() - (state.observedAt ?? 0) < 5_000;
+      const pinned =
+        state.target.id === this.focusTargetId &&
+        this.pinnedConversationId &&
+        conversations.some((conversation) => conversation.id === this.pinnedConversationId)
+          ? this.pinnedConversationId
+          : null;
+      if (observationFresh && state.observationState !== 'conversation' && !pinned) {
+        state.activeConversationId = null;
+        return;
+      }
+      const observed = observationFresh && state.observedConversationId
+        ? conversations.find((conversation) => conversation.id === state.observedConversationId) ?? null
         : null;
-    if (observationFresh && state.observationState !== 'conversation' && !pinned) {
-      state.activeConversationId = null;
-      return;
-    }
-    const observed = observationFresh && state.observedConversationId
-      ? conversations.find((conversation) => conversation.id === state.observedConversationId) ?? null
-      : null;
-    const selection = chooseConversation(conversations, state.previousStepCounts, pinned ?? state.activeConversationId);
-    const conversation =
-      (pinned ? conversations.find((entry) => entry.id === pinned) ?? null : null) ??
-      observed ??
-      (observationFresh && state.observationState === 'conversation' ? null : selection?.conversation) ??
-      null;
-    if (!conversation) {
-      state.activeConversationId = null;
-      return;
-    }
+      const selection = chooseConversation(conversations, state.previousStepCounts, pinned ?? state.activeConversationId);
+      const conversation =
+        (pinned ? conversations.find((entry) => entry.id === pinned) ?? null : null) ??
+        observed ??
+        (observationFresh && state.observationState === 'conversation' ? null : selection?.conversation) ??
+        null;
+      if (!conversation) {
+        state.activeConversationId = null;
+        return;
+      }
 
-    state.activeConversationId = conversation.id;
-    // Whole trajectories have their own lifetime so slow reads cannot stall summary polling.
-    const analysisSignal = this.analysisAborter.signal;
-    void this.refreshAnalysis(target, conversation, analysisSignal).then(() => {
-      if (this.disposed || analysisSignal.aborted || this.instances.get(target.id) !== state || state.target !== target) return;
-      this.recordUsageDelta(conversation.id);
-      this.publish();
-    });
+      state.activeConversationId = conversation.id;
+      // Whole trajectories have their own lifetime so slow reads cannot stall summary polling.
+      const analysisSignal = this.analysisAborter.signal;
+      void this.refreshAnalysis(target, conversation, analysisSignal).then(() => {
+        if (this.disposed || analysisSignal.aborted || this.instances.get(target.id) !== state || state.target !== target) return;
+        this.recordUsageDelta(conversation.id);
+        this.publish();
+      });
 
-    // Remember what "unchanged" means for the next tick, for every conversation
-    // so switching between them cannot fabricate a change.
-    state.previousStepCounts.clear();
-    for (const entry of conversations) {
-      state.previousStepCounts.set(entry.id, entry.stepCount);
+      // Keep running peers updated immediately, and warm at most one uncached idle peer per tick to avoid burst reads.
+      const peers = conversations
+        .filter((entry) => entry.id !== conversation.id && (!entry.isSubagent || entry.status === 'running'))
+        .slice(0, 4);
+      let idleWarmed = 0;
+      for (const peer of peers) {
+        if (peer.status !== 'running') {
+          const cached = this.analysisCache.get(peer.id);
+          if (cached && cached.signature === signatureOf(peer)) continue;
+          if (idleWarmed >= 1) continue;
+          idleWarmed += 1;
+        }
+        void this.refreshAnalysis(target, peer, analysisSignal).then(() => {
+          if (this.disposed || analysisSignal.aborted || this.instances.get(target.id) !== state || state.target !== target) return;
+          this.recordUsageDelta(peer.id);
+          this.publish();
+        });
+      }
+    } finally {
+      // Remember step counts even on early returns so leaving new-thread later cannot fabricate changes.
+      state.previousStepCounts.clear();
+      for (const entry of conversations) {
+        state.previousStepCounts.set(entry.id, entry.stepCount);
+      }
     }
   }
 
@@ -615,6 +662,12 @@ export class Monitor {
       if (this.disposed || signal.aborted || this.instances.get(target.id)?.target !== target) return;
       const steps = asArray(dig(payload, 'steps'));
       const analysis = analyzeSteps(steps);
+      if (
+        (analysis.modelId && resolveModel(analysis.modelId, this.catalog)?.source === 'unknown') ||
+        (analysis.selectedModelId && resolveModel(analysis.selectedModelId, this.catalog)?.source === 'unknown')
+      ) {
+        this.lastStatusRefresh = 0;
+      }
       const durationMs = Date.now() - startedAt;
       this.analysisCache.set(conversation.id, {
         signature,
@@ -675,9 +728,13 @@ export class Monitor {
         this.quotas.clear();
         this.quotaRetries.clear();
         this.focusTargetId = null;
-        this.deps.logger('Discovery found no Antigravity backends');
+        if (!this.standbyLogged) {
+          this.standbyLogged = true;
+          this.deps.logger('Standby: waiting for Antigravity to launch');
+        }
         return;
       }
+      this.standbyLogged = false;
 
       const scanned = await this.scanTargets(targets);
       if (this.disposed || generation !== this.generation) return;
@@ -819,6 +876,7 @@ export class Monitor {
       if (this.disposed || signal.aborted || this.instances.get(target.id)?.target !== target) return;
       this.catalog = buildCatalog(models);
       const summary = parseUserStatus(status, this.catalog);
+      mergePickerIntoCatalog(this.catalog, summary.picker);
       this.account = summary.account;
       this.picker = summary.picker;
       this.deps.logger(`Model catalogue loaded: ${this.catalog.size} entries, ${this.picker.length} picker entries`);
@@ -835,6 +893,9 @@ export class Monitor {
     this.failureCount += 1;
     const message = error instanceof Error ? error.message : String(error);
     this.lastError = message;
+    if (this.lastFailureKind === 'discovery' && this.standbyLogged) {
+      return;
+    }
     if (this.failureCount === 1 || this.failureCount % 10 === 0) {
       this.deps.logger(`Poll failed (${this.lastFailureKind}, attempt ${this.failureCount}): ${message}`);
     }
@@ -879,6 +940,11 @@ export class Monitor {
     const active =
       focus?.conversations.find((conversation) => conversation.id === focus.activeConversationId) ?? null;
     const conversationView = active ? this.buildConversationView(active) : null;
+    const composerRaw = focus && Date.now() - (focus.observedAt ?? 0) < 5_000 ? focus.observedModelName ?? null : null;
+    const composerSpec = composerRaw ? matchModelByName(composerRaw, this.catalog, this.picker) : null;
+    const composerModelName = composerSpec?.name ?? composerRaw;
+    const activeQuotaModelId =
+      composerSpec?.id ?? conversationView?.selectedModelId ?? conversationView?.modelId ?? null;
 
     return {
       schemaVersion: 1,
@@ -889,12 +955,14 @@ export class Monitor {
       backends: this.buildBackendViews(),
       instances: this.buildInstanceViews(),
       conversation: conversationView,
+      pinnedConversationId: this.pinnedConversationId,
+      composerModelName,
       sessions: focus
         ? focus.conversations
             .slice(0, SESSION_LIMIT)
-            .map((conversation) => this.buildSessionRow(conversation, focus.activeConversationId))
+            .map((conversation) => this.buildSessionRow(conversation, focus))
         : [],
-      models: this.buildModelRows(conversationView?.modelId ?? null),
+      models: this.buildModelRows(activeQuotaModelId),
       account: this.account,
       usage: this.deps.usageSummary(),
       prefs,
@@ -905,11 +973,14 @@ export class Monitor {
   }
 
   private deriveStatus(focus: InstanceState | null, active: TrajectorySummary | null): MonitorStatus {
+    if (!focus) {
+      if (this.statuses.size === 0) {
+        return this.lastFailureKind === 'discovery' || !this.lastError ? 'disconnected' : 'error';
+      }
+      return this.lastError ? 'error' : 'connecting';
+    }
     if (this.lastError) {
       return 'error';
-    }
-    if (!focus) {
-      return this.statuses.size === 0 ? 'disconnected' : 'connecting';
     }
     if (!focus.status.reachable) {
       return 'connecting';
@@ -929,13 +1000,17 @@ export class Monitor {
       }
       const conversation =
         state.conversations.find((entry) => entry.id === state.activeConversationId) ?? null;
+      const freshObservation = Date.now() - (state.observedAt ?? 0) < 5_000;
+      const composerRaw = freshObservation ? state.observedModelName ?? null : null;
+      const composerModelName = (composerRaw ? matchModelByName(composerRaw, this.catalog, this.picker)?.name : null) ?? composerRaw;
       views.push({
         quota: this.quotaForBackend(state.target.id),
         backend: this.toBackendView(state.status, state.target.id === this.focusTargetId),
         status: conversation ? 'ok' : 'no-conversation',
         conversation: conversation ? this.buildConversationView(conversation) : null,
         observedConversationId: state.observedConversationId,
-        viewState: Date.now() - (state.observedAt ?? 0) < 5_000 ? state.observationState : 'unknown',
+        composerModelName,
+        viewState: freshObservation ? state.observationState : 'unknown',
       });
     }
     return views.sort((left, right) => {
@@ -951,6 +1026,8 @@ export class Monitor {
     const analysis = cached?.analysis ?? null;
     const modelId = analysis?.modelId ?? null;
     const spec = resolveModel(modelId, this.catalog);
+    const selectedModelId = analysis?.selectedModelId ?? modelId;
+    const selectedSpec = resolveModel(selectedModelId, this.catalog);
     const capacity = spec?.contextLimit ?? null;
     const used = analysis?.used ?? null;
     const costTokens = analysis?.totals;
@@ -966,6 +1043,7 @@ export class Monitor {
         cacheRead: analysis.measured?.cacheRead ?? 0,
         cacheCreate: analysis.measured?.cacheCreate ?? 0,
         output: analysis.measured?.output ?? 0,
+        tokPerSec: analysis.measured?.tokPerSec ?? null,
         source: analysis.source === 'estimated' ? 'estimated' : 'measured',
         measuredAt: analysis.measured?.measuredAt ?? null,
       };
@@ -980,6 +1058,11 @@ export class Monitor {
       createdAt: conversation.createdAt,
       modelId,
       modelName: spec?.name ?? null,
+      selectedModelId,
+      selectedModelName: selectedSpec?.name ?? null,
+      workspace: conversation.workspace ?? null,
+      isSubagent: conversation.isSubagent ?? false,
+      rootConversationId: conversation.rootConversationId ?? null,
       usage,
       compressed: (this.compressedUntil.get(conversation.id) ?? 0) > Date.now(),
       imageSteps: analysis?.imageSteps ?? 0,
@@ -994,12 +1077,12 @@ export class Monitor {
     };
   }
 
-  private buildSessionRow(conversation: TrajectorySummary, activeId: string | null): SessionRow {
+  private buildSessionRow(conversation: TrajectorySummary, instance: InstanceState): SessionRow {
     const cached = this.analysisCache.get(conversation.id);
     const analysis = cached?.analysis ?? null;
     const spec = resolveModel(analysis?.modelId ?? null, this.catalog);
     const capacity = spec?.contextLimit ?? null;
-    const used = analysis?.source === 'measured' ? analysis.measured?.total ?? null : null;
+    const used = analysis?.used ?? null;
 
     return {
       id: conversation.id,
@@ -1007,9 +1090,16 @@ export class Monitor {
       status: conversation.status,
       stepCount: conversation.stepCount,
       lastModified: conversation.lastModified,
+      lastUserViewTime: conversation.lastUserViewTime ?? null,
       modelName: spec?.name ?? null,
       percent: capacity && used !== null ? (used / capacity) * 100 : null,
-      active: conversation.id === activeId,
+      active: conversation.id === instance.activeConversationId,
+      pinned: conversation.id === this.pinnedConversationId,
+      workspace: conversation.workspace ?? null,
+      isSubagent: conversation.isSubagent ?? false,
+      rootId: conversation.rootConversationId ?? null,
+      app: instance.status.owner,
+      backendId: instance.target.id,
     };
   }
 
@@ -1025,6 +1115,8 @@ export class Monitor {
         resetsAt: entry.resetsAt,
         contextLimit: entry.contextLimit ?? spec?.contextLimit ?? null,
         maxOutput: entry.maxOutput ?? spec?.maxOutput ?? null,
+        thinking: spec?.thinking ?? null,
+        tag: entry.tag ?? spec?.tag ?? null,
         active: entry.modelId !== null && entry.modelId === activeModelId,
       });
     }
@@ -1033,7 +1125,7 @@ export class Monitor {
       // No picker yet (for example before the first account refresh). Show what
       // the catalogue knows so the tab is never blank.
       for (const spec of this.catalog.values()) {
-        if (spec.contextLimit === null) {
+        if (spec.isInternal || spec.contextLimit === null) {
           continue;
         }
         const quota = quotaFor(spec.id, this.picker);
@@ -1044,18 +1136,32 @@ export class Monitor {
           resetsAt: quota?.resetsAt ?? null,
           contextLimit: spec.contextLimit,
           maxOutput: spec.maxOutput,
+          thinking: spec.thinking ?? null,
+          tag: spec.tag ?? null,
           active: spec.id === activeModelId,
         });
-        if (rows.length >= 12) {
+        if (rows.length >= 24) {
           break;
         }
       }
     }
 
     const liveQuota = this.quotaForBackend(this.focusTargetId);
+    const now = Date.now();
     return rows.map((row) => {
-      const bucket = quotaBucket(liveQuota, row.label, '5h');
-      return { ...row, quotaPercent: bucket?.percent ?? null, resetsAt: bucket?.resetsAt ?? null };
+      const hint = { resetsAt: row.resetsAt, percent: row.quotaPercent };
+      const group = resolveQuotaGroup(liveQuota.groups, row.label, hint);
+      const fiveHour = quotaBucket(liveQuota, row.label, '5h', now, hint);
+      const weekly = quotaBucket(liveQuota, row.label, 'weekly', now, hint);
+      const primary = fiveHour ?? weekly;
+      return {
+        ...row,
+        quotaPercent: primary?.percent ?? row.quotaPercent ?? null,
+        resetsAt: primary?.resetsAt ?? row.resetsAt ?? null,
+        weeklyPercent: weekly?.percent ?? null,
+        weeklyResetsAt: weekly?.resetsAt ?? null,
+        quotaGroup: group?.label ?? null,
+      };
     });
   }
 
@@ -1216,7 +1322,10 @@ function snapshotSignature(snapshot: Snapshot): string {
     conversation?.usage?.capacity ?? null,
     conversation?.usage?.source ?? null,
     conversation?.modelId ?? null,
+    conversation?.selectedModelId ?? null,
     conversation?.compressed ?? false,
+    snapshot.pinnedConversationId ?? null,
+    snapshot.composerModelName ?? null,
     snapshot.lastError,
     snapshot.prefs,
     snapshot.quota,
@@ -1228,11 +1337,12 @@ function snapshotSignature(snapshot: Snapshot): string {
       instance.conversation?.title ?? null,
       instance.conversation?.usage?.used ?? null,
       instance.observedConversationId,
+      instance.composerModelName ?? null,
       instance.viewState,
       instance.quota,
     ]),
-    snapshot.sessions.map((session) => [session.id, session.stepCount, session.percent, session.active]),
-    snapshot.models.map((model) => [model.modelId, model.quotaPercent, model.active]),
+    snapshot.sessions.map((session) => [session.id, session.stepCount, session.percent, session.active, session.modelName, session.pinned]),
+    snapshot.models.map((model) => [model.modelId, model.quotaPercent, model.weeklyPercent, model.active, model.quotaGroup]),
     [snapshot.usage.todayTokens, snapshot.usage.todayCostUsd],
   ]);
 }

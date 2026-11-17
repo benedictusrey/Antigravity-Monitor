@@ -7,7 +7,7 @@
 
 import * as vscode from 'vscode';
 
-import { formatCountdown, formatExact, formatPercent, formatPercentWhole, formatTokens, formatUsd } from '../core/format';
+import { formatCountdown, formatExact, formatPercent, formatPercentWhole, formatRate, formatTokens, formatUsd } from '../core/format';
 import { appLabel, buildStatusText, escapeMarkdown, usageBand, visibleQuota } from '../core/presentation';
 
 import { Snapshot } from './snapshot';
@@ -61,6 +61,7 @@ export function statusText(snapshot: Snapshot): string {
     return `$(pulse) ${STRINGS.statusBar.unavailable}`;
   }
 
+  const quotaModel = conversation.selectedModelName ?? conversation.modelName;
   if (snapshot.prefs.displayMode === 'custom') {
     const prefs = snippetPreferences(snapshot.prefs);
     const parts: string[] = [];
@@ -68,11 +69,12 @@ export function statusText(snapshot: Snapshot): string {
     if (prefs.snippetRemaining && usage.remaining !== null) parts.push(`${formatTokens(usage.remaining)} left`);
     for (const [key, window, label] of [['snippetFiveHour', '5h', '5h'], ['snippetWeekly', 'weekly', 'Week']] as const) {
       if (!prefs[key]) continue;
-      const bucket = quotaBucket(snapshot.quota, conversation.modelName, window);
+      const bucket = quotaBucket(snapshot.quota, quotaModel, window);
       const cached = snapshot.quota && quotaAt(snapshot.quota).status === 'cached' ? '~' : '';
       parts.push(bucket ? `${cached}${label} ${formatPercent(bucket.percent!)}${prefs.snippetResets && bucket.resetsAt ? ` (${formatCountdown(Date.parse(bucket.resetsAt))})` : ''}` : `${label} —`);
     }
-    if (prefs.snippetModel && conversation.modelName) parts.push(conversation.modelName);
+    if (prefs.snippetModel && quotaModel) parts.push(quotaModel);
+    if (prefs.snippetTokPerSec) parts.push(formatRate(usage.tokPerSec));
     return `$(pulse) ${parts.length ? parts.join(' · ') : 'Monitor'}`;
   }
 
@@ -165,6 +167,9 @@ export function tooltipFor(snapshot: Snapshot): vscode.MarkdownString {
   if (usage.capacity !== null) {
     row(tooltip, STRINGS.tooltip.capacity, `\`${formatExact(usage.capacity)}\` tokens`);
   }
+  if (typeof usage.tokPerSec === 'number' && usage.tokPerSec > 0) {
+    row(tooltip, 'Output speed', `\`${formatRate(usage.tokPerSec)}\``);
+  }
 
   const quota = activeQuota(snapshot);
   if (quota && snapshot.prefs.showQuota && quota.quotaPercent !== null) {
@@ -178,9 +183,10 @@ export function tooltipFor(snapshot: Snapshot): vscode.MarkdownString {
   }
 
   if (snapshot.quota) {
-    const weekly = quotaBucket(snapshot.quota, conversation.modelName, 'weekly');
+    const quotaModel = conversation.selectedModelName ?? conversation.modelName;
+    const weekly = quotaBucket(snapshot.quota, quotaModel, 'weekly');
     row(tooltip, 'Weekly quota', weekly ? `${formatPercent(weekly.percent!)} left${weekly.resetsAt ? `, resets in ${formatCountdown(Date.parse(weekly.resetsAt))}` : ''}` : 'Unavailable');
-    row(tooltip, 'Quota group', escapeMarkdown(resolveQuotaGroup(snapshot.quota.groups, conversation.modelName)?.label ?? 'Not identified'));
+    row(tooltip, 'Quota group', escapeMarkdown(resolveQuotaGroup(snapshot.quota.groups, quotaModel)?.label ?? 'Not identified'));
     row(tooltip, 'Quota source', `${quotaAt(snapshot.quota).status} · automatic 5-second refresh`);
   }
 
@@ -244,7 +250,7 @@ function row(tooltip: vscode.MarkdownString, label: string, value: string): void
 }
 
 function activeQuota(snapshot: Snapshot): Snapshot['models'][number] | null {
-  const modelId = snapshot.conversation?.modelId ?? null;
+  const modelId = snapshot.conversation?.selectedModelId ?? snapshot.conversation?.modelId ?? null;
   if (!modelId) {
     return null;
   }
@@ -252,7 +258,12 @@ function activeQuota(snapshot: Snapshot): Snapshot['models'][number] | null {
 }
 
 function activeQuotaPercent(snapshot: Snapshot): number | null {
-  if (snapshot.quota) return visibleQuota(quotaBucket(snapshot.quota, snapshot.conversation?.modelName, '5h')?.percent ?? null);
+  const quotaModel = snapshot.conversation?.selectedModelName ?? snapshot.conversation?.modelName;
+  if (snapshot.quota) {
+    const fiveHour = quotaBucket(snapshot.quota, quotaModel, '5h')?.percent;
+    const fallback = fiveHour ?? quotaBucket(snapshot.quota, quotaModel, 'weekly')?.percent ?? null;
+    return visibleQuota(fallback);
+  }
   return visibleQuota(activeQuota(snapshot)?.quotaPercent ?? null);
 }
 

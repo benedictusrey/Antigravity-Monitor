@@ -50,6 +50,7 @@ export interface UsageView {
   cacheRead: number;
   cacheCreate: number;
   output: number;
+  tokPerSec?: number | null;
   source: 'measured' | 'estimated';
   measuredAt: string | null;
 }
@@ -63,6 +64,11 @@ export interface ConversationView {
   createdAt: string | null;
   modelId: string | null;
   modelName: string | null;
+  selectedModelId?: string | null;
+  selectedModelName?: string | null;
+  workspace?: string | null;
+  isSubagent?: boolean;
+  rootConversationId?: string | null;
   usage: UsageView | null;
   compressed: boolean;
   imageSteps: number;
@@ -82,9 +88,16 @@ export interface SessionRow {
   status: ConversationStatus;
   stepCount: number;
   lastModified: string | null;
+  lastUserViewTime?: string | null;
   modelName: string | null;
   percent: number | null;
   active: boolean;
+  pinned?: boolean;
+  workspace?: string | null;
+  isSubagent?: boolean;
+  rootId?: string | null;
+  app?: 'app' | 'ide' | 'vscode' | 'unknown';
+  backendId?: string;
 }
 
 export interface ModelRow {
@@ -92,8 +105,13 @@ export interface ModelRow {
   label: string;
   quotaPercent: number | null;
   resetsAt: string | null;
+  weeklyPercent?: number | null;
+  weeklyResetsAt?: string | null;
+  quotaGroup?: string | null;
   contextLimit: number | null;
   maxOutput: number | null;
+  thinking?: boolean | null;
+  tag?: string | null;
   active: boolean;
 }
 
@@ -120,6 +138,7 @@ export interface InstanceView {
   conversation: ConversationView | null;
   /** Conversation the host itself has open, when a renderer reported it. */
   observedConversationId: string | null;
+  composerModelName?: string | null;
   viewState?: 'conversation' | 'new-thread' | 'unknown';
 }
 
@@ -134,6 +153,8 @@ export interface Snapshot {
   /** Every reachable installation, focused one first. */
   instances: InstanceView[];
   conversation: ConversationView | null;
+  pinnedConversationId?: string | null;
+  composerModelName?: string | null;
   sessions: SessionRow[];
   models: ModelRow[];
   account: AccountInfo | null;

@@ -48,10 +48,27 @@ async function portOccupied() {
 }
 
 function editorCli(name, candidates) {
-  for (const candidate of [...candidates, ...(process.env.PATH || '').split(':').filter(Boolean).map(folder => path.join(folder, name))]) {
+  const pathDirs = (process.env.PATH || '').split(':').filter(Boolean);
+  const extraDirs = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/snap/bin'];
+  for (const candidate of [...candidates, ...[...pathDirs, ...extraDirs].map(folder => path.join(folder, name))]) {
     try { fs.accessSync(candidate, fs.constants.X_OK); return candidate; } catch { /* Try the next location. */ }
   }
   return null;
+}
+
+export function resolveVsixFile(sourceRoot, version, explicitPath) {
+  if (!explicitPath) return path.join(sourceRoot, `antigravity-monitor-${version}.vsix`);
+  const resolved = path.resolve(explicitPath);
+  if (!fs.existsSync(resolved)) throw new Error(`VSIX package not found: ${resolved}`);
+  return resolved;
+}
+
+export function removeStartupEntries(locations, platform = process.platform, env = process.env, home = process.env.HOME || '') {
+  if (fs.existsSync(locations.autostart)) fs.unlinkSync(locations.autostart);
+  if (platform === 'linux') {
+    const appFile = path.join(env.XDG_DATA_HOME || path.join(home, '.local', 'share'), 'applications', 'antigravity-monitor.desktop');
+    if (fs.existsSync(appFile)) fs.unlinkSync(appFile);
+  }
 }
 
 export async function install(options = {}) {
@@ -59,7 +76,7 @@ export async function install(options = {}) {
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node.js 22 or newer is required.');
   const locations = installPaths();
   const manifest = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
-  const packageFile = path.join(source, `antigravity-monitor-${manifest.version}.vsix`);
+  const packageFile = options.uninstall ? null : resolveVsixFile(source, manifest.version, options.vsixPath);
   const required = ['package.json', 'LICENSE', 'out/src', 'tools', 'media'];
   if (!options.uninstall) for (const name of required) if (!fs.existsSync(path.join(source, name))) throw new Error(`Missing ${name}. Extract the complete companion ZIP or build from source.`);
   const occupied = await portOccupied();
@@ -74,7 +91,7 @@ export async function install(options = {}) {
   }
   await stopOwnProcess(existing);
   if (options.uninstall) {
-    if (fs.existsSync(locations.autostart)) fs.unlinkSync(locations.autostart);
+    removeStartupEntries(locations);
     console.log(`Startup disabled. Usage, settings, and runtime retained at ${locations.data} and ${locations.runtime}.`);
     return;
   }
@@ -98,11 +115,22 @@ export async function install(options = {}) {
     }
     fs.writeFileSync(locations.autostart, startupDocument(process.platform, process.execPath, locations.runtime, locations.data), { mode: 0o600 });
   } else if (fs.existsSync(locations.autostart)) fs.unlinkSync(locations.autostart);
+  if (process.platform === 'linux') {
+    const appDir = path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME || '', '.local', 'share'), 'applications');
+    const quoteExec = value => '"' + String(value).replace(/[%]/g, '%%').replace(/[\\"`$]/g, '\\$&') + '"';
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, 'antigravity-monitor.desktop'),
+      `[Desktop Entry]\nType=Application\nName=Antigravity Monitor\nComment=Open Antigravity Monitor dashboard\nIcon=${path.posix.join(locations.runtime, 'media', 'icon.png')}\nExec=${quoteExec(process.execPath)} ${quoteExec(path.join(locations.runtime, 'tools', 'monitor-server.mjs'))} --port 4599\nTerminal=false\nCategories=Development;Utility;\n`,
+      { mode: 0o644 },
+    );
+  }
   const failures = [];
   if (!options.noExtensions && fs.existsSync(packageFile)) {
     const editors = [
-      ['VS Code', editorCli('code', ['/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'])],
-      ['Antigravity IDE', editorCli('antigravity-ide', ['/Applications/Antigravity IDE.app/Contents/Resources/app/bin/antigravity-ide'])],
+      ['Antigravity IDE', editorCli('antigravity-ide', ['/Applications/Antigravity IDE.app/Contents/Resources/app/bin/antigravity-ide', '/usr/bin/antigravity-ide', '/usr/share/antigravity-ide/bin/antigravity-ide'])],
+      ['VS Code', editorCli('code', ['/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code', '/usr/bin/code', '/usr/share/code/bin/code', '/snap/bin/code'])],
+      ['VS Code Insiders', editorCli('code-insiders', ['/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders', '/usr/bin/code-insiders', '/usr/share/code-insiders/bin/code-insiders', '/snap/bin/code-insiders'])],
     ];
     for (const [name, cli] of editors) {
       if (!cli) { console.log(`${name}: CLI not found; native extension skipped.`); continue; }
@@ -139,7 +167,21 @@ export async function install(options = {}) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const allowed = ['--no-autostart', '--no-extensions', '--no-start', '--uninstall'];
-  if (args.some(argument => !allowed.includes(argument))) { console.error(`Options: ${allowed.join(' ')}`); process.exitCode = 1; }
-  else await install({ noAutostart: args.includes('--no-autostart'), noExtensions: args.includes('--no-extensions'), noStart: args.includes('--no-start'), uninstall: args.includes('--uninstall') }).catch(error => { console.error(error.message); process.exitCode = 1; });
+  const vsixIndex = args.indexOf('--vsix');
+  const vsixPath = vsixIndex >= 0 ? args[vsixIndex + 1] : null;
+  const positional = args.filter((arg, idx) => !arg.startsWith('--') && (vsixIndex < 0 || idx !== vsixIndex + 1));
+  const flags = args.filter(arg => arg.startsWith('--'));
+  const allowed = ['--no-autostart', '--no-extensions', '--no-start', '--uninstall', '--vsix'];
+  if (flags.some(argument => !allowed.includes(argument)) || (vsixIndex >= 0 && !vsixPath)) {
+    console.error(`Options: --no-autostart --no-extensions --no-start --uninstall [--vsix <path>]`);
+    process.exitCode = 1;
+  } else {
+    await install({
+      noAutostart: args.includes('--no-autostart'),
+      noExtensions: args.includes('--no-extensions'),
+      noStart: args.includes('--no-start'),
+      uninstall: args.includes('--uninstall'),
+      vsixPath: vsixPath || positional[0] || null,
+    }).catch(error => { console.error(error.message); process.exitCode = 1; });
+  }
 }

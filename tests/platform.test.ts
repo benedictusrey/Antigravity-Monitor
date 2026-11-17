@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
@@ -42,4 +44,83 @@ test('autostart documents preserve spaces and escape XML or desktop field codes'
   assert.match(linux, /Icon=\/home\/100% Test\/app\/media\/icon.png/);
   assert.deepEqual(openCommand('darwin', 'http://127.0.0.1:4599'), { file: '/usr/bin/open', args: ['http://127.0.0.1:4599'] });
   assert.deepEqual(openCommand('linux', 'http://127.0.0.1:4599'), { file: 'xdg-open', args: ['http://127.0.0.1:4599'] });
+});
+
+test('POSIX shell scripts use LF line endings and share nvm fallback discovery', () => {
+  const root = path.resolve(__dirname, '..', '..');
+  for (const file of ['Antigravity Monitor.sh', 'Install Antigravity Monitor.sh', 'Install Antigravity Monitor.command']) {
+    const raw = fs.readFileSync(path.join(root, file), 'utf8');
+    assert.equal(raw.includes('\r\n'), false, `${file} must use LF line endings`);
+  }
+  for (const file of ['Antigravity Monitor.sh', 'Install Antigravity Monitor.sh']) {
+    const raw = fs.readFileSync(path.join(root, file), 'utf8');
+    assert.match(raw, /\.nvm\/versions\/node\/\*\/bin\/node/, `${file} must search nvm installations`);
+  }
+  const commandLauncher = fs.readFileSync(path.join(root, 'Install Antigravity Monitor.command'), 'utf8');
+  assert.match(commandLauncher, /Install Antigravity Monitor\.sh/, 'macOS launcher must delegate to Install Antigravity Monitor.sh');
+});
+
+test('POSIX installer rejects missing explicit --vsix and cleans Linux desktop entries on uninstall', async () => {
+  const { resolveVsixFile, removeStartupEntries } = await load('install-posix.mjs');
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agm-posix-test-'));
+  try {
+    assert.throws(
+      () => resolveVsixFile(tempRoot, '1.1.0', path.join(tempRoot, 'missing.vsix')),
+      /VSIX package not found/,
+    );
+    const autostart = path.join(tempRoot, 'autostart.desktop');
+    const appDir = path.join(tempRoot, 'xdg-data', 'applications');
+    fs.mkdirSync(appDir, { recursive: true });
+    const desktopApp = path.join(appDir, 'antigravity-monitor.desktop');
+    fs.writeFileSync(autostart, '[Desktop Entry]\n');
+    fs.writeFileSync(desktopApp, '[Desktop Entry]\n');
+    removeStartupEntries(
+      { autostart },
+      'linux',
+      { XDG_DATA_HOME: path.join(tempRoot, 'xdg-data') },
+      tempRoot,
+    );
+    assert.equal(fs.existsSync(autostart), false);
+    assert.equal(fs.existsSync(desktopApp), false);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('setZipUnixPermissions writes UNIX creator and 0755 modes for POSIX launchers', async () => {
+  const { setZipUnixPermissions } = await importModule(
+    pathToFileURL(path.resolve(__dirname, '..', '..', 'scripts', 'set-zip-permissions.mjs')).href,
+  );
+  const nameA = Buffer.from('dir/Install Antigravity Monitor.command', 'utf8');
+  const nameB = Buffer.from('dir/README.md', 'utf8');
+  const header = (name: Buffer, offset: number): Buffer => {
+    const rec = Buffer.alloc(46 + name.length);
+    rec.writeUInt32LE(0x02014b50, 0);
+    rec.writeUInt16LE(20, 4);
+    rec.writeUInt16LE(name.length, 28);
+    rec.writeUInt32LE(offset, 42);
+    name.copy(rec, 46);
+    return rec;
+  };
+  const cd = Buffer.concat([header(nameA, 0), header(nameB, 0)]);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(2, 8);
+  eocd.writeUInt16LE(2, 10);
+  eocd.writeUInt32LE(cd.length, 12);
+  eocd.writeUInt32LE(0, 16);
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agm-zip-test-'));
+  const zipPath = path.join(tempRoot, 'sample.zip');
+  try {
+    fs.writeFileSync(zipPath, Buffer.concat([cd, eocd]));
+    setZipUnixPermissions(zipPath);
+    const patched = fs.readFileSync(zipPath);
+    assert.equal(patched.readUInt16LE(4) >> 8, 3);
+    assert.equal(patched.readUInt32LE(38) >>> 16, 0o100755);
+    const secondOffset = 46 + nameA.length;
+    assert.equal(patched.readUInt16LE(secondOffset + 4) >> 8, 3);
+    assert.equal(patched.readUInt32LE(secondOffset + 38) >>> 16, 0o100644);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

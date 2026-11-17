@@ -19,6 +19,9 @@ export interface ModelSpec {
   maxOutput: number | null;
   thinking: boolean | null;
   source: 'live' | 'fallback' | 'unknown';
+  tag?: string | null;
+  provider?: string | null;
+  isInternal?: boolean;
 }
 
 export interface PickerModel {
@@ -28,6 +31,7 @@ export interface PickerModel {
   resetsAt: string | null;
   contextLimit: number | null;
   maxOutput: number | null;
+  tag?: string | null;
 }
 
 export interface AccountInfo {
@@ -71,14 +75,35 @@ interface DatedPrice {
  * rather than borrowing another model's limit.
  */
 const FALLBACK_MODELS: Record<string, Omit<ModelSpec, 'id' | 'source'>> = {
+  MODEL_PLACEHOLDER_M18: { name: 'Gemini 3 Flash', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
+  MODEL_PLACEHOLDER_M21: { name: 'Gemini 3.1 Flash Image', contextLimit: 65_536, maxOutput: 65_536, thinking: null },
+  MODEL_PLACEHOLDER_M26: { name: 'Claude Opus 4.6 (Thinking)', contextLimit: 250_000, maxOutput: 64_000, thinking: true },
+  MODEL_PLACEHOLDER_M35: { name: 'Claude Sonnet 4.6 (Thinking)', contextLimit: 250_000, maxOutput: 64_000, thinking: true },
+  MODEL_PLACEHOLDER_M50: { name: 'Gemini 3.1 Flash Lite', contextLimit: 1_048_576, maxOutput: 65_535, thinking: true },
+  MODEL_PLACEHOLDER_M198: { name: 'Gemini 3.5 Flash Lite', contextLimit: 1_048_576, maxOutput: 65_535, thinking: true },
   MODEL_PLACEHOLDER_M318: { name: 'Gemini 3.8 Flash (High)', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
   MODEL_PLACEHOLDER_M319: { name: 'Gemini 3.8 Flash (Medium)', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
   MODEL_PLACEHOLDER_M320: { name: 'Gemini 3.8 Flash (Low)', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
   MODEL_PLACEHOLDER_M322: { name: 'Gemini 3.8 Flash', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
+  MODEL_PLACEHOLDER_M400: { name: 'Claude Opus 5.5 (Low)', contextLimit: 1_000_000, maxOutput: 128_000, thinking: true },
+  MODEL_PLACEHOLDER_M401: { name: 'Claude Opus 5.5 (Medium)', contextLimit: 1_000_000, maxOutput: 128_000, thinking: true },
+  MODEL_PLACEHOLDER_M402: { name: 'Claude Opus 5.5 (High)', contextLimit: 1_000_000, maxOutput: 128_000, thinking: true },
+  MODEL_PLACEHOLDER_M403: { name: 'Claude Sonnet 5.5 (Low)', contextLimit: 1_000_000, maxOutput: 128_000, thinking: true },
+  MODEL_PLACEHOLDER_M404: { name: 'Claude Sonnet 5.5 (Medium)', contextLimit: 1_000_000, maxOutput: 128_000, thinking: true },
+  MODEL_PLACEHOLDER_M405: { name: 'Claude Sonnet 5.5 (High)', contextLimit: 1_000_000, maxOutput: 128_000, thinking: true },
+  MODEL_PLACEHOLDER_M417: { name: 'Gemini 4 Argon (High)', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
+  MODEL_PLACEHOLDER_M418: { name: 'Gemini 4 Argon (Medium)', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
+  MODEL_PLACEHOLDER_M419: { name: 'Gemini 4 Argon (Low)', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
   MODEL_PLACEHOLDER_M421: { name: 'Gemini 4 Argon', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
-  MODEL_PLACEHOLDER_M26: { name: 'Claude Opus 4.6 (Thinking)', contextLimit: 250_000, maxOutput: 64_000, thinking: true },
-  MODEL_PLACEHOLDER_M35: { name: 'Claude Sonnet 4.6 (Thinking)', contextLimit: 250_000, maxOutput: 64_000, thinking: true },
-  MODEL_PLACEHOLDER_M21: { name: 'Gemini 3.1 Flash Image', contextLimit: 65_536, maxOutput: 65_536, thinking: null },
+  MODEL_PLACEHOLDER_M525: { name: 'Gemini 4 Hydrogen (High)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M526: { name: 'Gemini 4 Hydrogen (Medium)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M527: { name: 'Gemini 4 Hydrogen (Low)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M528: { name: 'Gemini 4 Hydrogen (XHigh)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M530: { name: 'Gemini 4 Hydrogen (High)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M531: { name: 'Gemini 4 Hydrogen (XHigh)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M668: { name: 'Orchestrator (Argon)', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
+  MODEL_PLACEHOLDER_M669: { name: 'Gemini 4 Hydrogen (Orchestrator)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M670: { name: 'Gemini 4 Carbon', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
   MODEL_OPENAI_GPT_OSS_120B_MEDIUM: { name: 'GPT-OSS 120B (Medium)', contextLimit: 131_072, maxOutput: 32_768, thinking: true },
 };
 
@@ -105,7 +130,11 @@ const PRICE_FAMILY_BY_MODEL: Record<string, string> = {
   MODEL_PLACEHOLDER_M319: 'gemini-3.8-flash',
   MODEL_PLACEHOLDER_M320: 'gemini-3.8-flash',
   MODEL_PLACEHOLDER_M322: 'gemini-3.8-flash',
+  MODEL_PLACEHOLDER_M417: 'gemini-4-argon',
+  MODEL_PLACEHOLDER_M418: 'gemini-4-argon',
+  MODEL_PLACEHOLDER_M419: 'gemini-4-argon',
   MODEL_PLACEHOLDER_M421: 'gemini-4-argon',
+  MODEL_PLACEHOLDER_M668: 'gemini-4-argon',
 };
 
 /** Short, stable label used when the catalogue has no display name. */
@@ -138,6 +167,9 @@ export function buildCatalog(payload: unknown): Map<string, ModelSpec> {
     const maxOutput = safeInt(record.maxOutputTokens);
     const displayName = firstString(record.displayName);
     const thinking = typeof record.supportsThinking === 'boolean' ? record.supportsThinking : null;
+    const tag = firstString(record.tagTitle);
+    const provider = firstString(record.modelProvider);
+    const isInternal = record.isInternal === true;
 
     // A later catalogue entry for the same placeholder should not erase a
     // display name or capacity that an earlier one supplied.
@@ -149,6 +181,9 @@ export function buildCatalog(payload: unknown): Map<string, ModelSpec> {
       maxOutput: maxOutput ?? existing?.maxOutput ?? null,
       thinking: thinking ?? existing?.thinking ?? null,
       source: 'live',
+      tag: tag ?? existing?.tag ?? null,
+      provider: provider ?? existing?.provider ?? null,
+      isInternal: existing?.isInternal ?? isInternal,
     };
     if (!existing || scoreModel(next) >= scoreModel(existing)) {
       catalog.set(id, next);
@@ -177,15 +212,51 @@ export function resolveModel(id: string | null | undefined, catalog: Map<string,
   if (!id) {
     return null;
   }
+  const fallback = FALLBACK_MODELS[id];
   const live = catalog.get(id);
   if (live) {
+    if (live.name === shortModelId(live.id) && fallback) {
+      return { ...live, name: fallback.name };
+    }
     return live;
   }
-  const fallback = FALLBACK_MODELS[id];
   if (fallback) {
     return { id, ...fallback, source: 'fallback' };
   }
   return { id, name: shortModelId(id), contextLimit: null, maxOutput: null, thinking: null, source: 'unknown' };
+}
+
+/** Normalize a display name (e.g. `Gemini 4 Hydrogen High` vs `Gemini 4 Hydrogen (High)`). */
+export function normalizeModelKey(name: string | null | undefined): string {
+  return String(name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** Match a UI-observed model label back to a canonical catalog or picker spec. */
+export function matchModelByName(
+  label: string | null | undefined,
+  catalog: Map<string, ModelSpec>,
+  picker: readonly PickerModel[] = [],
+): ModelSpec | null {
+  const target = normalizeModelKey(label);
+  if (!target) {
+    return null;
+  }
+  for (const entry of picker) {
+    if (normalizeModelKey(entry.label) === target && entry.modelId) {
+      return resolveModel(entry.modelId, catalog);
+    }
+  }
+  for (const spec of catalog.values()) {
+    if (normalizeModelKey(spec.name) === target) {
+      return spec;
+    }
+  }
+  for (const [id, spec] of Object.entries(FALLBACK_MODELS)) {
+    if (normalizeModelKey(spec.name) === target) {
+      return { id, ...spec, source: 'fallback' };
+    }
+  }
+  return null;
 }
 
 /**
@@ -224,6 +295,7 @@ export function parseUserStatus(payload: unknown, catalog: Map<string, ModelSpec
     }
     const fraction = finiteNumber(dig(record, 'quotaInfo', 'remainingFraction'));
     const spec = resolveModel(modelId, catalog);
+    const tag = firstString(record.tagTitle) ?? spec?.tag ?? null;
     picker.push({
       modelId,
       label,
@@ -231,10 +303,36 @@ export function parseUserStatus(payload: unknown, catalog: Map<string, ModelSpec
       resetsAt: asString(dig(record, 'quotaInfo', 'resetTime')),
       contextLimit: spec?.contextLimit ?? null,
       maxOutput: spec?.maxOutput ?? null,
+      tag,
     });
   }
 
   return { account, picker };
+}
+
+/** Merge labels/tags from `GetUserStatus` picker into the live catalogue when missing. */
+export function mergePickerIntoCatalog(catalog: Map<string, ModelSpec>, picker: readonly PickerModel[]): void {
+  for (const entry of picker) {
+    if (!entry.modelId) continue;
+    const existing = catalog.get(entry.modelId);
+    if (!existing) {
+      catalog.set(entry.modelId, {
+        id: entry.modelId,
+        name: entry.label,
+        contextLimit: entry.contextLimit,
+        maxOutput: entry.maxOutput,
+        thinking: null,
+        source: 'live',
+        tag: entry.tag ?? null,
+      });
+    } else if (existing.name === shortModelId(existing.id) || (entry.tag && !existing.tag)) {
+      catalog.set(entry.modelId, {
+        ...existing,
+        name: existing.name === shortModelId(existing.id) ? entry.label : existing.name,
+        tag: existing.tag ?? entry.tag ?? null,
+      });
+    }
+  }
 }
 
 function clampPercent(value: number): number {
@@ -286,9 +384,4 @@ export function estimateCost(tokens: TokenCounts, modelId: string | null, atMs =
   const cached = (tokens.cacheRead / 1_000_000) * price.cacheRead;
   const output = (tokens.output / 1_000_000) * price.output;
   return fresh + cached + output;
-}
-
-/** True when at least one currently priced model exists in the catalogue. */
-export function hasPricedModel(modelIds: Array<string | null>): boolean {
-  return modelIds.some((id) => priceFor(id) !== null);
 }

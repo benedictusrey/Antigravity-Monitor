@@ -1,6 +1,6 @@
 # Antigravity Monitor user guide
 
-This guide covers v1.0.0. The white desktop app uses a separate companion. Antigravity IDE and VS Code can also run the native extension.
+This guide covers v1.1.0. The white desktop app uses a separate companion. Antigravity IDE and VS Code can also run the native extension, which starts the installed companion automatically if needed.
 
 ## Install and update
 
@@ -8,7 +8,7 @@ Extract the complete companion ZIP. Install Node.js 22 or newer, then run the in
 
 The installer copies a stable runtime, preserves settings, creates startup integration, and starts the companion. Re-run it to update an existing installation. It identifies the monitor before stopping a process on port 4599 and saves the previous runtime as a backup. Do not run it with administrator or sudo privileges.
 
-Native editor extension installation depends on finding the editor CLI. If skipped, use **Extensions: Install from VSIX** inside the editor and select `antigravity-monitor-1.0.0.vsix`. Reload editor windows after installation.
+Native editor extension installation depends on finding the editor CLI. If skipped, use **Extensions: Install from VSIX** inside the editor and select `antigravity-monitor-1.1.0.vsix`. Reload editor windows after installation.
 
 macOS and Linux installation code is included, with native platform acceptance still pending. macOS installation requires a logged-in graphical session for the user LaunchAgent. Linux startup requires a desktop session that supports XDG autostart; it is not a system service.
 
@@ -54,6 +54,7 @@ Expand **Customize snippet** in the card, or open **Settings** in the companion 
 | Weekly quota | Remaining weekly allowance for that group. |
 | Model name | Model identity. |
 | Reset countdowns | Reset times beside selected quota fields. |
+| Output tok/s | Measured output generation speed (`tok/s`). |
 
 Changing a field enables Custom mode. Essentials shows the core context reading; Full adds remaining context. Hiding all fields leaves a **Monitor** button. Changes preview immediately; allow a few seconds for the companion's debounced disk save before terminating it forcibly.
 
@@ -61,24 +62,24 @@ Native editor settings apply to that editor's status bar. They are separate from
 
 ## Dashboard
 
-- **Overview:** context, quota windows, connected apps, token breakdown, growth, and locally observed usage.
-- **Sessions:** conversation summaries. Selecting a session measures it in the dashboard.
-- **Models:** model capacities and available quotas.
-- **Settings:** display preferences, thresholds, response limits, backend selection, and local diagnostics.
+- **Overview:** context gauge, token composition breakdown (including cache hit percentage), quota pools, connected apps and running threads, growth chart, and locally observed usage.
+- **Threads:** parent conversations and nested child subagents with instant search, running/top-level filters, and one-click pinning or auto-following.
+- **Models:** auto-discovered backend models grouped by quota pool with context capacities and live reset countdowns.
+- **Settings:** display preferences, thresholds, response limits, snippet customization, backend selection, and local diagnostics.
 
-Use arrow keys to move between tabs. The inline card closes with Escape or an outside click. Refresh requests fresh readings; context changes only when the conversation changes.
+Use arrow keys (or number keys `1`–`4`) to move between tabs and `r` to refresh readings. The inline card closes with Escape or an outside click. Refresh requests fresh readings; context changes only when the conversation changes.
 
 ## Storage and startup
 
 | Platform | Data | Runtime | Startup |
 |---|---|---|---|
-| Windows | `%LOCALAPPDATA%\Antigravity Monitor` | `app` beneath data | Windows Startup shortcut. |
+| Windows | `%LOCALAPPDATA%\Antigravity Monitor` | `app` beneath data | Windows Startup shortcut, `HKCU\...\Run` entry, and editor extension activation. |
 | macOS | `~/Library/Application Support/Antigravity Monitor` | `app` beneath data | `~/Library/LaunchAgents/io.github.benedictusrey.antigravity-monitor.plist`. |
 | Linux | `$XDG_STATE_HOME/antigravity-monitor` or `~/.local/state/antigravity-monitor` | `$XDG_DATA_HOME/antigravity-monitor/app` or `~/.local/share/antigravity-monitor/app` | `$XDG_CONFIG_HOME/autostart/antigravity-monitor.desktop` or `~/.config/autostart/antigravity-monitor.desktop`. |
 
 Data includes `state.json`, logs, and upgrade backups. Native editors keep their own settings and usage in their extension storage. Moving or removing Node.js can break an installed startup entry; re-run the installer afterward.
 
-On macOS/Linux, use `node tools/install-posix.mjs --no-autostart` to install without startup integration. Other options are `--no-extensions`, `--no-start`, and `--uninstall`. Uninstall stops the identified companion and removes its startup entry while retaining data and runtime for manual recovery. Remove native editor extensions through their Extensions view separately.
+On macOS/Linux, installers automatically search standard `node` paths (Homebrew, `/usr/local`, `/snap/bin`, Volta, fnm, nvm), install the native VSIX into detected editors (`antigravity-ide`, `code`, `code-insiders`), and on Linux add `~/.local/share/applications/antigravity-monitor.desktop`. Options: `--no-autostart`, `--no-extensions`, `--no-start`, `--uninstall`, `--vsix <path>`. Uninstall stops the identified companion and removes its startup entry while retaining data and runtime for manual recovery. Remove native editor extensions through their Extensions view separately.
 
 On Windows, remove the **Antigravity Monitor** Startup shortcut to disable future automatic launches. Stop the identified companion process before removing its runtime. Keep `state.json` and backups if you want to retain usage and preferences.
 

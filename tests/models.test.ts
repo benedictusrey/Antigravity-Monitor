@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import {
   buildCatalog,
   estimateCost,
+  matchModelByName,
+  mergePickerIntoCatalog,
   parseUserStatus,
   priceFor,
   quotaFor,
@@ -138,4 +140,25 @@ test('cost estimation combines fresh input, cached input, and output', () => {
 
 test('cost estimation declines when the model has no rate', () => {
   assert.equal(estimateCost({ input: 1_000_000, cacheRead: 0, output: 0 }, 'MODEL_PLACEHOLDER_M26'), null);
+});
+
+test('matchModelByName and mergePickerIntoCatalog automatically recognise UI and new models', () => {
+  const catalog = buildCatalog(
+    modelsPayload([
+      { catalogId: 'gemini-4-hydrogen-high', model: 'MODEL_PLACEHOLDER_M525', displayName: 'Gemini 4 Hydrogen (High)', maxTokens: 1_048_576, maxOutputTokens: 262_144 },
+    ]),
+  );
+  const { picker } = parseUserStatus(
+    userStatusPayload({
+      entries: [
+        { label: 'Future Model Alpha', model: 'MODEL_PLACEHOLDER_M998', remainingFraction: 0.9 },
+      ],
+    }),
+    catalog,
+  );
+  mergePickerIntoCatalog(catalog, picker);
+
+  assert.equal(matchModelByName('Gemini 4 Hydrogen High', catalog, picker)?.id, 'MODEL_PLACEHOLDER_M525');
+  assert.equal(resolveModel('MODEL_PLACEHOLDER_M998', catalog)?.name, 'Future Model Alpha');
+  assert.ok(priceFor('MODEL_PLACEHOLDER_M419', Date.parse('2026-11-17T00:00:00Z')) !== null, 'Gemini 4 Argon tiers have pricing');
 });

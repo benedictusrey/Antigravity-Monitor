@@ -1,6 +1,6 @@
 # Architecture
 
-Antigravity Monitor v1.0.0 has a shared observer core and two presentation hosts: a native VS Code extension and a standalone companion. The white Antigravity desktop app uses the companion because it has no VS Code extension host.
+Antigravity Monitor v1.1.0 has a shared observer core and two presentation hosts: a native VS Code extension and a standalone companion. The white Antigravity desktop app uses the companion because it has no VS Code extension host, while the native extension also starts the installed companion automatically (`ensureCompanionRunning`) on editor activation.
 
 ## Data flow
 

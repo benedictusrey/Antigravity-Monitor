@@ -60,4 +60,4 @@ foreach($installer in @($false,$true)){
     & $compiler @arguments
     if($LASTEXITCODE -ne 0){throw "Failed to build $name"}
 }
-Write-Output 'Built branded Windows launchers, multi-size ICO, and ICNS assets for v1.0.0.'
+Write-Output 'Built branded Windows launchers, multi-size ICO, and ICNS assets for v1.1.0.'

@@ -278,7 +278,7 @@ export function windowsDiscoveryScript(): string {
     '    if (-not $proc) { return "unknown" }',
     '    if ($proc.Name -eq "Antigravity IDE.exe") { return "ide" }',
     '    if ($proc.Name -eq "Antigravity.exe") { return "app" }',
-    '    if ($proc.Name -eq "Code.exe") { return "vscode" }',
+    '    if ($proc.Name -eq "Code.exe" -or $proc.Name -eq "Code - Insiders.exe") { return "vscode" }',
     '    $cur = $proc.ParentProcessId; $depth++;',
     '  }',
     '  return "unknown"',

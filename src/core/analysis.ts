@@ -32,6 +32,8 @@ export interface MeasuredUsage {
   output: number;
   /** Total context occupied by this request. */
   total: number;
+  /** Measured output generation rate in tokens/sec, when timing is valid. */
+  tokPerSec: number | null;
   modelId: string | null;
   measuredAt: string | null;
 }
@@ -49,6 +51,8 @@ export type UsageSource = 'measured' | 'estimated' | 'none';
 export interface ConversationAnalysis {
   /** Model of the latest response, else the model selected in the composer. */
   modelId: string | null;
+  /** Most recently selected or generating model across the trajectory. */
+  selectedModelId: string | null;
   /** Latest provider-reported snapshot, if one exists. */
   measured: MeasuredUsage | null;
   /** Context used, measured or estimated. `null` when nothing is known. */
@@ -80,6 +84,9 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
   let measured: MeasuredUsage | null = null;
   let measuredIndex = -1;
   let planModel: string | null = null;
+  let planModelIndex = -1;
+  let generatorModel: string | null = null;
+  let generatorModelIndex = -1;
   let plannerCount = 0;
   let malformedSnapshots = 0;
   let userTurns = 0;
@@ -102,6 +109,12 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
       lastActivityAt = createdAt;
     }
 
+    const stepGeneratorModel = metadata ? asString(metadata.generatorModel) : null;
+    if (stepGeneratorModel) {
+      generatorModel = stepGeneratorModel;
+      generatorModelIndex = index;
+    }
+
     if (isImageStep(step, type)) {
       imageSteps += 1;
     }
@@ -109,10 +122,13 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
     if (type === STEP.userInput) {
       userTurns += 1;
       lastUserInputAt = createdAt ?? lastUserInputAt;
-      planModel =
+      const nextPlanModel =
         asString(dig(step, 'userInput', 'userConfig', 'plannerConfig', 'planModel')) ??
-        asString(dig(step, 'userInput', 'lastUserConfig', 'plannerConfig', 'planModel')) ??
-        planModel;
+        asString(dig(step, 'userInput', 'lastUserConfig', 'plannerConfig', 'planModel'));
+      if (nextPlanModel) {
+        planModel = nextPlanModel;
+        planModelIndex = index;
+      }
       continue;
     }
 
@@ -130,7 +146,7 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
     if (usage === null || usage === undefined) {
       continue;
     }
-    const parsed = parseModelUsage(usage, createdAt);
+    const parsed = parseModelUsage(usage, createdAt, metadata);
     if (!parsed) {
       malformedSnapshots += 1;
       continue;
@@ -162,8 +178,15 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
     source = 'none';
   }
 
+  const newerSelected =
+    planModelIndex > measuredIndex || generatorModelIndex > measuredIndex
+      ? (generatorModelIndex > planModelIndex ? generatorModel : planModel) ?? generatorModel ?? planModel
+      : null;
+  const selectedModelId = newerSelected ?? measured?.modelId ?? generatorModel ?? planModel;
+
   return {
-    modelId: measured?.modelId ?? planModel,
+    modelId: measured?.modelId ?? selectedModelId,
+    selectedModelId,
     measured,
     used,
     source,
@@ -188,7 +211,11 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
  * `responseOutputTokens`, so only the aggregate is used; summing the parts would
  * double-count reasoning.
  */
-export function parseModelUsage(usage: unknown, measuredAt: string | null): MeasuredUsage | null {
+export function parseModelUsage(
+  usage: unknown,
+  measuredAt: string | null,
+  metadata?: Record<string, unknown> | null,
+): MeasuredUsage | null {
   const record = asRecord(usage);
   if (!record) {
     return null;
@@ -210,9 +237,39 @@ export function parseModelUsage(usage: unknown, measuredAt: string | null): Meas
     cacheCreate,
     output,
     total,
+    tokPerSec: computeTokPerSec(record, output, metadata ?? null),
     modelId: asString(record.model),
     measuredAt,
   };
+}
+
+function computeTokPerSec(
+  record: Record<string, unknown>,
+  output: number,
+  metadata: Record<string, unknown> | null,
+): number | null {
+  if (!metadata || output <= 0) {
+    return null;
+  }
+  const finishedIso = asString(metadata.finishedGeneratingAt) ?? asString(metadata.completedAt);
+  const finishedMs = finishedIso ? Date.parse(finishedIso) : NaN;
+  if (!Number.isFinite(finishedMs)) {
+    return null;
+  }
+  // Prefer visible response decode speed when thinking and response tokens are split (or zero thinking);
+  // sub-500ms windows fall through to full turn time to avoid clock-quantization spikes.
+  const streamedTokens = safeInt(record.responseOutputTokens) ?? ((safeInt(record.thinkingOutputTokens) ?? 0) === 0 ? output : null);
+  const viewableIso = asString(metadata.viewableAt);
+  const viewableMs = viewableIso ? Date.parse(viewableIso) : NaN;
+  if (streamedTokens !== null && streamedTokens > 0 && Number.isFinite(viewableMs) && finishedMs - viewableMs >= 500) {
+    return Math.round((streamedTokens / ((finishedMs - viewableMs) / 1000)) * 10) / 10;
+  }
+  const createdIso = asString(metadata.createdAt);
+  const createdMs = createdIso ? Date.parse(createdIso) : NaN;
+  if (Number.isFinite(createdMs) && finishedMs - createdMs >= 250) {
+    return Math.round((output / ((finishedMs - createdMs) / 1000)) * 10) / 10;
+  }
+  return null;
 }
 
 function isImageStep(step: Record<string, unknown>, type: string): boolean {
@@ -299,7 +356,22 @@ function textFieldsOf(step: Record<string, unknown>): string[] {
   }
   const codeAction = asRecord(step.codeAction);
   if (codeAction) {
-    push(codeAction.actionSpec);
+    const spec = codeAction.actionSpec;
+    if (typeof spec === 'string') {
+      push(spec);
+    } else if (spec && typeof spec === 'object') {
+      try {
+        const serialized = JSON.stringify(spec);
+        if (serialized.length > 0 && serialized.length <= 200_000) out.push(serialized);
+      } catch {
+        // Ignore unserializable object.
+      }
+    }
+  }
+  const invokeSubagent = asRecord(step.invokeSubagent);
+  if (invokeSubagent) {
+    push(invokeSubagent.prompt);
+    push(invokeSubagent.role);
   }
 
   return out;

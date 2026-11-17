@@ -5,6 +5,7 @@ export const SNIPPET_DEFAULTS = {
   snippetWeekly: false,
   snippetModel: false,
   snippetResets: false,
+  snippetTokPerSec: false,
 } as const;
 
 export type SnippetKey = keyof typeof SNIPPET_DEFAULTS;

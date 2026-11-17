@@ -20,7 +20,11 @@ export interface TrajectorySummary {
   rawStatus: string;
   lastModified: string | null;
   createdAt: string | null;
+  lastUserViewTime?: string | null;
   projectId: string | null;
+  rootConversationId?: string | null;
+  isSubagent?: boolean;
+  workspace?: string | null;
 }
 
 export interface BackendStatus {
@@ -63,6 +67,25 @@ function toEpochMs(value: string | null): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+function workspaceNameFrom(source: Record<string, unknown>): string | null {
+  const firstWorkspace = asRecord(asArray(source.workspaces)[0]);
+  const firstMetaWorkspace = asRecord(asArray(dig(source, 'trajectoryMetadata', 'workspaces'))[0]);
+  const firstMetaUri = asString(asArray(dig(source, 'trajectoryMetadata', 'workspaceUris'))[0]);
+  const uri = firstString(
+    firstWorkspace?.workspaceFolderAbsoluteUri,
+    firstMetaUri,
+    firstMetaWorkspace?.workspaceFolderAbsoluteUri,
+  );
+  if (!uri) return null;
+  const trimmed = uri.replace(/[\\/]+$/, '');
+  const segment = trimmed.split(/[\\/]/).pop() ?? '';
+  try {
+    return decodeURIComponent(segment) || null;
+  } catch {
+    return segment || null;
+  }
+}
+
 /** Parse a `GetAllCascadeTrajectories` response into an ordered list. */
 export function parseTrajectories(payload: unknown): TrajectorySummary[] {
   const summaries = dig(payload, 'trajectorySummaries');
@@ -91,6 +114,7 @@ export function parseTrajectories(payload: unknown): TrajectorySummary[] {
     }
     const rawStatus = asString(source.status) ?? '';
     const title = firstString(dig(source, 'annotations', 'title'), source.summary) ?? 'Untitled conversation';
+    const rootConversationId = asString(dig(source, 'trajectoryMetadata', 'rootConversationId'));
     result.push({
       id,
       title,
@@ -99,7 +123,11 @@ export function parseTrajectories(payload: unknown): TrajectorySummary[] {
       rawStatus,
       lastModified: asString(source.lastModifiedTime),
       createdAt: asString(source.createdTime),
+      lastUserViewTime: asString(dig(source, 'annotations', 'lastUserViewTime')),
       projectId: asString(dig(source, 'trajectoryMetadata', 'projectId')),
+      rootConversationId,
+      isSubagent: Boolean(rootConversationId && rootConversationId !== id),
+      workspace: workspaceNameFrom(source),
     });
   }
 
@@ -231,7 +259,10 @@ export function chooseConversation(
     return null;
   }
 
-  const running = conversations.filter((conversation) => conversation.status === 'running');
+  const topLevel = conversations.filter((conversation) => !conversation.isSubagent);
+  const primary = topLevel.length > 0 ? topLevel : conversations;
+
+  const running = primary.filter((conversation) => conversation.status === 'running');
   if (running.length > 0) {
     const pinnedRunning = pinnedId ? running.find((conversation) => conversation.id === pinnedId) : undefined;
     return {
@@ -240,7 +271,7 @@ export function chooseConversation(
     };
   }
 
-  const changed = conversations.filter((conversation) => {
+  const changed = primary.filter((conversation) => {
     const before = previousStepCounts.get(conversation.id);
     return before !== undefined && before !== conversation.stepCount;
   });
@@ -255,7 +286,11 @@ export function chooseConversation(
     }
   }
 
-  return { conversation: conversations[0], reason: 'recent' };
+  const viewed = [...primary].sort(
+    (left, right) => toEpochMs(right.lastUserViewTime ?? null) - toEpochMs(left.lastUserViewTime ?? null),
+  );
+  const picked = toEpochMs(viewed[0]?.lastUserViewTime ?? null) > 0 ? viewed[0] : primary[0];
+  return { conversation: picked, reason: 'recent' };
 }
 
 /** True when a conversation's identifying signature differs from the cached one. */

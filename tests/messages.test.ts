@@ -18,6 +18,10 @@ test('selection messages carry a bounded identifier', () => {
     type: 'selectSession',
     id: 'd2681d8c-9ebd',
   });
+  assert.deepEqual(parseMessage({ type: 'selectSession', id: null }), {
+    type: 'selectSession',
+    id: null,
+  });
 });
 
 test('selection messages without a usable identifier are dropped', () => {

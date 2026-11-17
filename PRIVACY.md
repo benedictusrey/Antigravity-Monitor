@@ -1,6 +1,6 @@
 # Privacy
 
-Antigravity Monitor v1.0.0 observes local Antigravity state. It does not run a proxy, send analytics, or call a remote account service.
+Antigravity Monitor v1.1.0 observes local Antigravity state. It does not run a proxy, send analytics, or call a remote account service.
 
 ## What it reads
 

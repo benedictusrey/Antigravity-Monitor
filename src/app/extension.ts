@@ -6,6 +6,12 @@
  * behaviour lives in `monitor.ts` and the pure `core/` modules.
  */
 
+import { execFile, spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as http from 'node:http';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
 import * as vscode from 'vscode';
 
 import { SettingKey } from '../core/messages';
@@ -55,7 +61,7 @@ export function activate(context: vscode.ExtensionContext): void {
       void store?.setPinnedBackendId(id);
       monitor?.selectBackend(id);
     },
-    onSelectSession: (id: string) => {
+    onSelectSession: (id: string | null) => {
       void store?.setPinnedConversationId(id);
       monitor?.pinConversation(id);
     },
@@ -94,6 +100,51 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   monitor.start();
+  ensureCompanionRunning();
+}
+
+/**
+ * If the standalone companion was installed on this machine, start it silently
+ * whenever an editor host activates and port 4599 is not yet answering.
+ */
+function ensureCompanionRunning(): void {
+  if (process.env.NODE_TEST_CONTEXT) return;
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  const script =
+    process.platform === 'win32'
+      ? path.join(localAppData, 'Antigravity Monitor', 'app', 'tools', 'start-companion.ps1')
+      : path.join(
+          process.platform === 'darwin'
+            ? path.join(os.homedir(), 'Library', 'Application Support', 'Antigravity Monitor')
+            : path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'antigravity-monitor'),
+          'app',
+          'tools',
+          'monitor-server.mjs',
+        );
+  if (!fs.existsSync(script)) return;
+
+  const req = http.get('http://127.0.0.1:4599/api/health', { timeout: 1000 }, (res) => {
+    res.resume();
+  });
+  req.on('error', () => {
+    try {
+      if (process.platform === 'win32') {
+        const powershell = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+        execFile(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script], {
+          windowsHide: true,
+        });
+      } else {
+        const child = spawn(process.execPath, [script, '--no-open', '--port', '4599'], {
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+      }
+    } catch {
+      // Best-effort companion wakeup.
+    }
+  });
+  req.on('timeout', () => req.destroy());
 }
 
 function onSnapshot(snapshot: Snapshot): void {
@@ -129,7 +180,7 @@ function maybeWarnAboutQuota(snapshot: Snapshot): void {
   if (threshold <= 0 || !snapshot.conversation) {
     return;
   }
-  const activeId = snapshot.conversation.modelId;
+  const activeId = snapshot.conversation.selectedModelId ?? snapshot.conversation.modelId;
 
   for (const model of snapshot.models) {
     if (model.modelId === null || model.quotaPercent === null) {
@@ -140,11 +191,9 @@ function maybeWarnAboutQuota(snapshot: Snapshot): void {
 
     if (low && armed && model.modelId === activeId) {
       quotaState.set(model.modelId, false);
-      if (model.modelId === activeId) {
-        void vscode.window.showWarningMessage(
-          STRINGS.notices.quotaWarning(model.label, `${Math.round(model.quotaPercent)}%`),
-        );
-      }
+      void vscode.window.showWarningMessage(
+        STRINGS.notices.quotaWarning(model.label, `${Math.round(model.quotaPercent)}%`),
+      );
     } else if (!low && !armed) {
       quotaState.set(model.modelId, true);
     }

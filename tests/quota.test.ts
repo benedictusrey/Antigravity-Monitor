@@ -108,3 +108,44 @@ test('quota polling publishes a fast backend while another request and trajector
     rpc.callRpc = original;
   }
 });
+
+test('multi-group Gemini quota resolves Gemini Models, Argon, and future models via resetTime hints', () => {
+  const multi = parseQuotaSummary({
+    response: {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          description: 'Models within this group: Gemini 4 Hydrogen, Gemini 3.8 Flash',
+          buckets: [
+            { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.497, resetTime: '2026-11-22T21:52:35Z' },
+            { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.944, resetTime: '2026-11-17T07:47:45Z' },
+          ],
+        },
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 0.999, resetTime: '2026-11-22T21:52:59Z' },
+            { bucketId: '3p-5h', window: '5h', remainingFraction: 1, resetTime: '2026-11-17T08:43:42Z' },
+          ],
+        },
+        {
+          displayName: 'Gemini 4 Argon',
+          buckets: [
+            { bucketId: 'gemini-argon-wtu-weekly', window: 'weekly', remainingFraction: 0.803, resetTime: '2026-11-22T21:53:27Z' },
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.equal(resolveQuotaGroup(multi, 'Gemini 4 Hydrogen (High)')?.label, 'Gemini Models');
+  assert.equal(resolveQuotaGroup(multi, 'Gemini 3.8 Flash (High)')?.label, 'Gemini Models');
+  assert.equal(resolveQuotaGroup(multi, 'Gemini 4 Argon (Medium)')?.label, 'Gemini 4 Argon');
+  assert.equal(resolveQuotaGroup(multi, 'Orchestrator (Argon)')?.label, 'Gemini 4 Argon');
+  assert.equal(resolveQuotaGroup(multi, 'Claude Opus 5.5 (High)')?.label, 'Claude and GPT models');
+  // Unknown future model resolved automatically via GetUserStatus resetTime correlation
+  assert.equal(
+    resolveQuotaGroup(multi, 'Brand New Future Model', { resetsAt: '2026-11-17T07:47:45Z', percent: 94.7 })?.label,
+    'Gemini Models',
+  );
+});

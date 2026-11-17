@@ -56,6 +56,17 @@ export function formatExact(value: number | null | undefined): string {
   return integerFormatter.format(Math.round(value));
 }
 
+/** Output generation rate: `214 tok/s`, or `4.5 tok/s` under 10. */
+export function formatRate(value: number | null | undefined): string {
+  if (!isFiniteNumber(value) || value <= 0) {
+    return `${EMPTY} tok/s`;
+  }
+  const formatted = value >= 10
+    ? integerFormatter.format(Math.round(value))
+    : decimalFormatter.format(value).replace(/\.0$/, '');
+  return `${formatted} tok/s`;
+}
+
 /** Percentage with a single decimal: `16.7%`. */
 export function formatPercent(value: number | null | undefined, digits = 1): string {
   if (!isFiniteNumber(value)) {
@@ -149,15 +160,6 @@ export function formatDate(iso: string | number | null | undefined): string {
     month: 'short',
     year: 'numeric',
   });
-}
-
-/** Compact weekday label for chart axes: `Mon`. */
-export function formatWeekday(iso: string | number | null | undefined): string {
-  const date = toDate(iso);
-  if (!date) {
-    return EMPTY;
-  }
-  return date.toLocaleDateString(LOCALE, { weekday: 'short' });
 }
 
 /** Relative age such as `just now`, `4m ago`, `2h ago`. */

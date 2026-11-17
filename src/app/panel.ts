@@ -20,7 +20,7 @@ import { APP_NAME, VIEW_TYPE } from './strings';
 export interface PanelCallbacks {
   onRefresh: () => void;
   onSelectBackend: (id: string) => void;
-  onSelectSession: (id: string) => void;
+  onSelectSession: (id: string | null) => void;
   onShowDiagnostics: () => void;
   onUpdateSetting: (key: SettingKey, value: string | number | boolean) => void;
 }

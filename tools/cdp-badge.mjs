@@ -24,52 +24,12 @@ import { configRoot } from './platform.mjs';
 const require = createRequire(import.meta.url);
 const { quotaAt, quotaBucket, resolveQuotaGroup } = require('../out/src/core/quota.js');
 const { snippetPreferences } = require('../out/src/core/snippet.js');
+const { formatRate } = require('../out/src/core/format.js');
 
 const PROBE = `!!document.querySelector('[data-testid="agent-input-box"]')`;
 
 /** Bump when the injected script changes; the guard below is built from it. */
-const VERSION = 16;
-
-/** The Settings panel's limit rows; empty unless that panel is on screen. */
-export const QUOTA_ROWS = `(function () {
-  var out = [];
-  var seen = new Set();
-  var labels = Array.from(document.querySelectorAll('[data-testid="quota-progress-circle"]')).map(function (node) {
-    return { node: node, boundary: node.closest('div.py-2') || (node.parentElement && node.parentElement.parentElement) || node };
-  });
-  var panels = document.querySelectorAll('[data-testid="models-and-usage"], [data-testid="models-usage"], [data-testid="usage-settings"], [aria-label="Models & Usage"], [aria-label="Models and usage"], [role="dialog"]');
-  for (var panel of panels) {
-    if (panel.getAttribute('role') === 'dialog' &&
-        !/models\\s*(?:&|and)\\s*usage/i.test(panel.getAttribute('aria-label') || panel.textContent)) continue;
-    for (var node of panel.querySelectorAll('[role="progressbar"], h2, h3, h4, label, span, p')) {
-      labels.push({ node: node, boundary: panel });
-    }
-  }
-  for (var i = 0; i < labels.length && out.length < 16; i++) {
-    var anchor = labels[i];
-    if (anchor.node.closest('[data-agm-card], [data-agm-badge]') || !anchor.node.getClientRects().length) continue;
-    var row = anchor.node;
-    var label = row.textContent.replace(/\\s+/g, ' ').trim();
-    if (!/weekly|(?:five|5)[- ]hour/i.test(label) && !row.matches('[data-testid="quota-progress-circle"], [role="progressbar"]')) continue;
-    for (var depth = 0; row && depth < 5; depth++, row = row.parentElement) {
-      var text = row.textContent.replace(/\\s+/g, ' ').trim();
-      if (text.length > 1200) break;
-      if (/weekly|(?:five|5)[- ]hour/i.test(text)) {
-        var progress = row.querySelector('[role="progressbar"]');
-        if (progress && !/%/.test(text) && progress.getAttribute('aria-valuemax') === '100') {
-          var now = progress.getAttribute('aria-valuenow');
-          if (now !== null) text += ' ' + now + '%';
-        }
-        if (/\\d+(?:\\.\\d+)?\\s*%/.test(text)) {
-          if (!seen.has(text)) { seen.add(text); out.push(text); }
-          break;
-        }
-      }
-      if (row === anchor.boundary) break;
-    }
-  }
-  return out;
-})()`;
+const VERSION = 21;
 
 export const INSTALL = `(function () {
   if (window.__agmVersion === ${VERSION}) return true;
@@ -129,7 +89,7 @@ export const INSTALL = `(function () {
 
   function snippetPrefs() {
     return Object.assign({ snippetContext: true, snippetRemaining: true, snippetFiveHour: false,
-      snippetWeekly: false, snippetModel: false, snippetResets: false }, last && last.snippetPrefs, pendingPrefs);
+      snippetWeekly: false, snippetModel: false, snippetResets: false, snippetTokPerSec: false }, last && last.snippetPrefs, pendingPrefs);
   }
 
   function queueSetting(key, value) {
@@ -140,7 +100,7 @@ export const INSTALL = `(function () {
   function setPreset(value) {
     queueSetting('displayMode', value);
     var values = { snippetContext: true, snippetRemaining: value === 'full', snippetFiveHour: false,
-      snippetWeekly: false, snippetModel: false, snippetResets: false };
+      snippetWeekly: false, snippetModel: false, snippetResets: false, snippetTokPerSec: false };
     for (var key in values) queueSetting(key, values[key]);
     renderPill();
     renderCard();
@@ -161,23 +121,6 @@ export const INSTALL = `(function () {
   }
 
   // ---------------------------------------------------------------- density
-
-  function preference() {
-    try {
-      var stored = localStorage.getItem('agm-density');
-      return stored === 'essentials' || stored === 'full' ? stored : null;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  function remember(value) {
-    try {
-      localStorage.setItem('agm-density', value);
-    } catch (error) {
-      // Private mode or wiped profile: the choice simply does not persist.
-    }
-  }
 
   function density() {
     return pendingPrefs.displayMode || (last && last.density) || 'full';
@@ -275,6 +218,7 @@ export const INSTALL = `(function () {
     if (prefs.snippetFiveHour) parts.push((quotaExpired ? '5h —' : quotaPrefix + (values.fiveHour || '5h —').replace(/^~/, '')) + (!quotaExpired && prefs.snippetResets && values.fiveHourReset ? ' (' + values.fiveHourReset + ')' : ''));
     if (prefs.snippetWeekly) parts.push((quotaExpired ? 'Week —' : quotaPrefix + (values.weekly || 'Week —').replace(/^~/, '')) + (!quotaExpired && prefs.snippetResets && values.weeklyReset ? ' (' + values.weeklyReset + ')' : ''));
     if (prefs.snippetModel && values.model) parts.push(values.model);
+    if (prefs.snippetTokPerSec) parts.push(values.tokPerSec || '— tok/s');
     label.textContent = parts.length ? parts.join(' · ') : 'Monitor';
     dot.style.background = last.color;
     pill.title = label.textContent + '\\n' + (stale ? 'Stale reading. ' : '') + last.title;
@@ -316,6 +260,36 @@ export const INSTALL = `(function () {
     }
   }
 
+  function quotaRow(labelText) {
+    var wrap = mk('div', 'display:grid;grid-template-columns:80px minmax(0,1fr);column-gap:12px;align-items:center');
+    var name = mk('span', 'color:var(--muted-foreground,#b4b4b4);font-size:13px;line-height:1.5', labelText);
+    var right = mk('div', 'display:flex;flex-direction:column;gap:4px;min-width:0;align-items:stretch');
+    var value = mk('span', 'color:var(--foreground,#fff);font-size:13px;line-height:1.4;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere');
+    var barTrack = mk('div', 'height:4px;border-radius:999px;background:rgba(128,128,128,0.22);overflow:hidden');
+    var barFill = mk('div', 'height:100%;width:0;border-radius:999px;background:var(--ring,#4daafc);transition:width 200ms ease,background-color 200ms ease');
+    if (reducedMotion) barFill.style.transition = 'none';
+    barTrack.appendChild(barFill);
+    right.appendChild(value);
+    right.appendChild(barTrack);
+    wrap.appendChild(name);
+    wrap.appendChild(right);
+    return { wrap: wrap, value: value, barTrack: barTrack, barFill: barFill };
+  }
+
+  function setQuotaRow(parts, limit, text) {
+    parts.wrap.style.display = 'grid';
+    var tone = limit && limitTone(limit.percent);
+    parts.value.textContent = text;
+    parts.value.style.color = tone || 'var(--foreground,#fff)';
+    if (limit && typeof limit.percent === 'number' && isFinite(limit.percent)) {
+      parts.barTrack.style.display = 'block';
+      parts.barFill.style.width = Math.max(0, Math.min(100, limit.percent)) + '%';
+      parts.barFill.style.background = tone || '#3b9eff';
+    } else {
+      parts.barTrack.style.display = 'none';
+    }
+  }
+
   function row(labelText, valueText) {
     var wrap = mk('div', 'display:grid;grid-template-columns:80px minmax(0,1fr);column-gap:12px;align-items:baseline');
     var name = mk('span', 'color:var(--muted-foreground,#b4b4b4);font-size:13px;line-height:1.6', labelText);
@@ -340,11 +314,11 @@ export const INSTALL = `(function () {
       'overflow:auto',
       'box-sizing:border-box',
       'padding:16px',
-      'border-radius:10px',
+      'border-radius:12px',
       'background:var(--card,#1b1b1b)',
       'color:var(--foreground,#fff)',
       'border:1px solid var(--border,rgba(255,255,255,0.12))',
-      'box-shadow:0 8px 24px rgba(0,0,0,0.22)',
+      'box-shadow:0 12px 32px rgba(0,0,0,0.28)',
       'font-family:var(--font-sans,system-ui)',
       'font-size:14px',
       'line-height:1.45',
@@ -416,13 +390,15 @@ export const INSTALL = `(function () {
     var ruleOne = mk('div', 'height:1px;background:var(--border,rgba(255,255,255,0.1));margin:12px 0');
     var modelRow = row('Model', '');
     var quotaModelRow = row('Quota model', '');
-    var sessionRow = row('5-hour', '');
-    var weeklyRow = row('Weekly', '');
+    var breakdownRow = row('Tokens', '');
+    var sessionRow = quotaRow('5-hour');
+    var weeklyRow = quotaRow('Weekly');
     var updatedRow = row('Updated', '');
-    var quotaNote = mk('p', 'margin:10px 0 0;color:var(--muted-foreground,#b4b4b4);font-size:12px;line-height:1.5');
-    var rows = mk('div', 'display:flex;flex-direction:column;gap:6px');
+    var quotaNote = mk('p', 'margin:8px 0 0;color:var(--muted-foreground,#9ca3af);font-size:11.5px;line-height:1.45');
+    var rows = mk('div', 'display:flex;flex-direction:column;gap:8px');
     rows.appendChild(modelRow.wrap);
     rows.appendChild(quotaModelRow.wrap);
+    rows.appendChild(breakdownRow.wrap);
     rows.appendChild(sessionRow.wrap);
     rows.appendChild(weeklyRow.wrap);
     rows.appendChild(updatedRow.wrap);
@@ -466,7 +442,7 @@ export const INSTALL = `(function () {
     var fieldGrid = mk('div', 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:10px;row-gap:2px;padding-top:4px');
     customize.appendChild(fieldGrid);
     var fieldNames = { snippetContext: 'Context used', snippetRemaining: 'Context remaining',
-      snippetFiveHour: '5-hour quota', snippetWeekly: 'Weekly quota', snippetModel: 'Model name', snippetResets: 'Reset countdowns' };
+      snippetFiveHour: '5-hour quota', snippetWeekly: 'Weekly quota', snippetModel: 'Model name', snippetResets: 'Reset countdowns', snippetTokPerSec: 'Output tok/s' };
     Object.keys(fieldNames).forEach(function (key) {
       var wrap = mk('label', 'display:flex;align-items:center;gap:10px;min-height:32px;cursor:pointer;font-size:13px');
       var input = document.createElement('input');
@@ -512,9 +488,29 @@ export const INSTALL = `(function () {
       copySummary();
     });
 
-    var footActions = mk('div', 'display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%');
-    footActions.appendChild(copy);
-    footActions.appendChild(refresh);
+    var openDash = mk('a', [
+      'display:inline-flex',
+      'align-items:center',
+      'gap:4px',
+      'color:var(--ring,#4daafc)',
+      'font-size:12px',
+      'font-weight:500',
+      'text-decoration:none',
+      'min-height:32px',
+      'padding:4px 6px',
+      'cursor:pointer'
+    ].join(';'), 'Dashboard');
+    openDash.href = 'http://127.0.0.1:4599';
+    openDash.target = '_blank';
+    openDash.rel = 'noopener noreferrer';
+    openDash.title = 'Open Antigravity Monitor dashboard';
+
+    var footActions = mk('div', 'display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%');
+    var rightActions = mk('div', 'display:flex;align-items:center;gap:4px');
+    rightActions.appendChild(copy);
+    rightActions.appendChild(refresh);
+    footActions.appendChild(openDash);
+    footActions.appendChild(rightActions);
     foot.appendChild(footLabel);
     foot.appendChild(group);
     foot.appendChild(footActions);
@@ -545,10 +541,13 @@ export const INSTALL = `(function () {
       remaining: remaining,
       model: modelRow,
       quotaModel: quotaModelRow,
+      breakdown: breakdownRow,
       session: sessionRow,
       weekly: weeklyRow,
       updated: updatedRow,
+      openDash: openDash,
       quotaNote: quotaNote,
+      footLabel: footLabel,
       essentials: essentialButton,
       full: fullButton,
       copy: copy,
@@ -658,19 +657,21 @@ export const INSTALL = `(function () {
     cardParts.remaining.style.display = values.remainingText ? '' : 'none';
 
     setRow(cardParts.model, values.model);
-    cardParts.model.value.title = values.model;
+    cardParts.model.value.title = values.model || '';
     var normalizedModel = String(values.model || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     var normalizedQuotaModel = String(values.quotaModel || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     setRow(cardParts.quotaModel, normalizedModel !== normalizedQuotaModel ? values.quotaModel : null);
+    setRow(cardParts.breakdown, values.breakdownText || null);
+    if (values.dashboardUrl && cardParts.openDash) cardParts.openDash.href = values.dashboardUrl;
 
     var status = quotaStatus(values);
     var quotaExpired = status === 'unavailable';
     var sessionText = quotaExpired ? null : limitText(values.session);
-    setRow(cardParts.session, sessionText || 'Unavailable', values.session && limitTone(values.session.percent));
+    setQuotaRow(cardParts.session, quotaExpired ? null : values.session, sessionText || 'Unavailable');
 
     var weekly = !quotaExpired && values.limits && values.limits.weekly;
     var weeklyText = limitText(weekly);
-    setRow(cardParts.weekly, weeklyText || 'Unavailable', weekly && limitTone(weekly.percent));
+    setQuotaRow(cardParts.weekly, weekly || null, weeklyText || 'Unavailable');
     cardParts.quotaNote.textContent = (values.quotaGroup || 'Quota group not identified') + '. ' +
       (stale ? 'Companion disconnected; quota is not live.' : status === 'live' ? 'Live; refreshes every 5 seconds.' : status === 'cached' ? 'Cached; retrying automatically.' : 'Quota unavailable; retrying automatically.') +
       (values.quotaCheckedText ? ' Checked ' + values.quotaCheckedText + '.' : '');
@@ -684,6 +685,7 @@ export const INSTALL = `(function () {
     }
 
     var active = density();
+    if (cardParts.footLabel) cardParts.footLabel.textContent = active === 'custom' ? 'Display · Custom' : 'Display';
     cardParts.essentials.style.background = active === 'essentials' ? 'var(--card,#1b1b1b)' : 'transparent';
     cardParts.essentials.style.color = active === 'essentials' ? 'var(--foreground,#fff)' : 'var(--muted-foreground,#9a9a9a)';
     cardParts.full.style.background = active === 'full' ? 'var(--card,#1b1b1b)' : 'transparent';
@@ -740,15 +742,12 @@ export const INSTALL = `(function () {
     if (open) renderCard();
   };
 
-  window.__agmTakeRefresh = function () {
-    var value = refreshRequested;
+  window.__agmDrain = function () {
+    var refresh = refreshRequested;
     refreshRequested = false;
-    return value;
-  };
-  window.__agmTakeSettings = function () {
-    var values = settingsQueue;
+    var settings = settingsQueue;
     settingsQueue = {};
-    return values;
+    return { refresh: refresh, settings: settings };
   };
 
   function checkConversation() {
@@ -760,9 +759,10 @@ export const INSTALL = `(function () {
         last.card.quotaModel = context.modelName;
         last.card.session = null;
         last.card.limits = null;
+        last.card.quotaObservedAt = null;
         last.card.quotaStatus = 'unavailable';
         last.card.quotaGroup = 'Updating selected model';
-        last.snippetValues = Object.assign({}, last.snippetValues, { fiveHour: '5h —', weekly: 'Week —', model: context.modelName, fiveHourReset: null, weeklyReset: null });
+        last.snippetValues = Object.assign({}, last.snippetValues, { fiveHour: '5h —', weekly: 'Week —', model: context.modelName, fiveHourReset: null, weeklyReset: null, tokPerSec: null });
         renderPill();
         if (open) renderCard();
       }
@@ -772,6 +772,7 @@ export const INSTALL = `(function () {
     var prior = last;
     last = waitingPayload(context.viewState, prior && prior.card && prior.card.app);
     last.contextKey = context.contextKey;
+    last.density = (prior && prior.density) || 'full';
     last.snippetPrefs = prior && prior.snippetPrefs;
     renderPill();
     if (open) renderCard();
@@ -812,21 +813,29 @@ export const INSTALL = `(function () {
   }, 1000);
   // A background window throttles timers to roughly once a minute, which is
   // exactly when a stale number must not be shown.
-  document.addEventListener('visibilitychange', checkStale);
-  window.addEventListener('focus', checkStale);
+    document.addEventListener('visibilitychange', function () {
+    if (window.__agmOwner !== owner) return;
+    checkStale();
+  });
+  window.addEventListener('focus', function () {
+    if (window.__agmOwner !== owner) return;
+    checkStale();
+  });
   window.addEventListener('resize', function () {
+    if (window.__agmOwner !== owner) return;
     if (open) positionCard();
   });
   document.addEventListener(
     'mousedown',
     function (event) {
-      if (!open) return;
+      if (window.__agmOwner !== owner || !open) return;
       if ((card && card.contains(event.target)) || (pill && pill.contains(event.target))) return;
       toggleCard(false);
     },
     true
   );
   document.addEventListener('keydown', function (event) {
+    if (window.__agmOwner !== owner) return;
     if (event.key === 'Escape' && open) {
       toggleCard(false);
       if (pill) pill.focus({ preventScroll: true });
@@ -846,15 +855,19 @@ class CdpConnection {
     this.onClose = null;
     this.socket = new WebSocket(url);
     this.ready = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('connect timeout')), timeoutMs);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) { settled = true; reject(new Error('connect timeout')); }
+      }, timeoutMs);
       this.socket.onopen = () => {
-        clearTimeout(timer);
-        resolve();
+        if (!settled) { settled = true; clearTimeout(timer); resolve(); }
       };
       this.socket.onerror = (event) => {
-        clearTimeout(timer);
-        reject(new Error(`socket error: ${event.message ?? 'unknown'}`));
+        if (!settled) { settled = true; clearTimeout(timer); reject(new Error(`socket error: ${event.message ?? 'unknown'}`)); }
       };
+      this.socket.addEventListener('close', () => {
+        if (!settled) { settled = true; clearTimeout(timer); reject(new Error('socket closed before open')); }
+      }, { once: true });
     });
     this.socket.onmessage = (event) => {
       let message;
@@ -977,7 +990,7 @@ export function readRendererContext() {
   const local = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
   const newThread = composer && local && /^\/(?:new|new-chat|chat\/new)?\/?$/.test(route);
   if (!conversationId && !newThread) {
-    const selected = document.querySelector('[aria-current="page"][href*="/c/"], [data-conversation-id][data-active="true"]');
+    const selected = document.querySelector('[aria-current="page"][href*="/c/"], [data-conversation-id][data-active="true"], [data-testid="conversation-row-sidebar"][data-active="true"]');
     if (selected) {
       const value = selected.getAttribute('data-conversation-id') || selected.getAttribute('href') || '';
       const match = /(?:^|\/c\/)([0-9a-f-]{8,})(?:[/?#]|$)/i.exec(value);
@@ -997,7 +1010,8 @@ export function readRendererContext() {
   const key = viewState + ':' + (conversationId || route);
   let hash = 0;
   for (let index = 0; index < key.length; index++) hash = ((hash << 5) - hash + key.charCodeAt(index)) | 0;
-  const modelName = document.querySelector('[data-testid="model-selector-trigger"]')?.textContent?.trim().slice(0, 160) || null;
+  const rawModel = document.querySelector('[data-testid="model-selector-trigger"]')?.textContent?.trim().slice(0, 160) || null;
+  const modelName = rawModel ? rawModel.replace(/\s*(?:New|Notice|Unavailable|Beta|Preview)\s*$/i, '').trim() || null : null;
   return { port, conversationId, viewState, contextKey: String(hash), modelName, productName: window.__APP_CONFIG__?.productName || null };
 }
 
@@ -1124,6 +1138,7 @@ export class BadgeInjector {
   constructor(options = {}) {
     this.logger = options.logger ?? (() => {});
     this.explicitPorts = parsePortList(options.ports ?? options.port ?? []);
+    this.dashboardUrl = options.dashboardUrl ?? 'http://127.0.0.1:4599';
     this.latest = null;
     this.renderers = new Map();
     this.connecting = false;
@@ -1143,6 +1158,13 @@ export class BadgeInjector {
       void this.checkRefresh();
     }, 750);
     this.refreshTimer.unref?.();
+  }
+
+  /** Wake attachment immediately when a DevTools endpoint file changes. */
+  wake() {
+    if (this.disposed) return;
+    this.connectAt = 0;
+    void this.pump();
   }
 
   /** Feed the newest snapshot; every attached renderer gets its own slice. */
@@ -1188,13 +1210,19 @@ export class BadgeInjector {
       for (const renderer of [...this.renderers.values()]) {
         let requested = false;
         try {
-          await this.push(renderer);
-          requested = (await renderer.connection.evaluate(
-            'window.__agmTakeRefresh ? window.__agmTakeRefresh() : false',
-          )) === true;
-          const settings = await renderer.connection.evaluate('window.__agmTakeSettings ? window.__agmTakeSettings() : {}');
-          if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
-            for (const [key, value] of Object.entries(settings)) this.onUpdateSetting(key, value);
+          const prevKey = renderer.contextKey;
+          const prevModel = renderer.modelName;
+          await this.refreshContext(renderer);
+          if (renderer.contextKey !== prevKey || renderer.modelName !== prevModel) {
+            await this.push(renderer);
+          }
+          const drained = await renderer.connection.evaluate('window.__agmDrain ? window.__agmDrain() : null');
+          if (drained && typeof drained === 'object') {
+            requested = drained.refresh === true;
+            const settings = drained.settings;
+            if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
+              for (const [key, value] of Object.entries(settings)) this.onUpdateSetting(key, value);
+            }
           }
         } catch {
           continue;
@@ -1230,14 +1258,14 @@ export class BadgeInjector {
             'Badge: no DevTools endpoint found; launch a host with --remote-debugging-port to enable its badge',
           );
         }
-        this.connectAt = Date.now() + 30_000;
+        this.connectAt = Date.now() + 4_000;
         return;
       }
 
       for (const endpoint of endpoints) {
         await this.attachPort(endpoint.port, endpoint.app);
       }
-      this.connectAt = Date.now() + 10_000;
+      this.connectAt = Date.now() + 4_000;
     } finally {
       this.connecting = false;
     }
@@ -1343,7 +1371,7 @@ export class BadgeInjector {
     if (renderer.backendPort) {
       // A null reading is meaningful: a new-chat page must not keep showing the
       // previous conversation.
-      this.onObserved(renderer.backendPort, conversationId, renderer.viewState);
+      this.onObserved(renderer.backendPort, conversationId, renderer.viewState, renderer.modelName);
     }
   }
 
@@ -1373,6 +1401,7 @@ export class BadgeInjector {
     const payload = rendererPayload(this.latest, instance, {
       viewState: renderer.viewState, conversationId: renderer.observed, contextKey: renderer.contextKey, modelName: renderer.modelName,
     });
+    if (payload.card) payload.card.dashboardUrl = this.dashboardUrl;
     await renderer.connection.evaluate(`window.__agmApply(${JSON.stringify(payload)})`);
     renderer.shown = payload.show !== false;
   }
@@ -1467,6 +1496,11 @@ export function toPayload(snapshot, _legacyLimits = null, app = null, modelNameO
         typeof usage.remaining === 'number' && Number.isFinite(usage.remaining)
           ? `${format(usage.remaining)} left`
           : null,
+      breakdownText:
+        usage.input || usage.cacheRead || usage.output
+          ? `In ${format(usage.input)} · Cache ${format(usage.cacheRead)} · Out ${format(usage.output)}` +
+            (typeof usage.tokPerSec === 'number' && usage.tokPerSec > 0 ? ` · ${formatRate(usage.tokPerSec)}` : '')
+          : null,
       model,
       session: null,
       limits: null,
@@ -1480,9 +1514,14 @@ export function toPayload(snapshot, _legacyLimits = null, app = null, modelNameO
 
 function decorateQuota(payload, snapshot, modelName) {
   const quota = quotaAt(snapshot.quota || { groups: [], observedAt: null, status: 'unavailable', error: null });
-  const group = resolveQuotaGroup(quota.groups, modelName);
-  const session = quotaBucket(quota, modelName, '5h');
-  const weekly = quotaBucket(quota, modelName, 'weekly');
+  const normalized = String(modelName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const matchedRow = (snapshot.models || []).find(
+    (row) => String(row.label || '').toLowerCase().replace(/[^a-z0-9]/g, '') === normalized,
+  );
+  const hint = matchedRow ? { resetsAt: matchedRow.resetsAt, percent: matchedRow.quotaPercent } : null;
+  const group = resolveQuotaGroup(quota.groups, modelName, hint);
+  const session = quotaBucket(quota, modelName, '5h', Date.now(), hint);
+  const weekly = quotaBucket(quota, modelName, 'weekly', Date.now(), hint);
   const display = (bucket) => bucket ? { percent: bucket.percent, resetText: countdown(bucket.resetsAt) } : null;
   payload.card.session = display(session);
   payload.card.limits = weekly ? { weekly: display(weekly) } : null;
@@ -1506,77 +1545,14 @@ function decorateQuota(payload, snapshot, modelName) {
     model: modelName || null,
     fiveHourReset: session ? countdown(session.resetsAt) : null,
     weeklyReset: weekly ? countdown(weekly.resetsAt) : null,
+    tokPerSec: typeof snapshot.conversation?.usage?.tokPerSec === 'number' && snapshot.conversation.usage.tokPerSec > 0
+      ? formatRate(snapshot.conversation.usage.tokPerSec)
+      : null,
   };
 }
 
 function formatPercent(value) {
   return (Math.round(value * 10) / 10).toFixed(1).replace(/\.0$/, '') + '%';
-}
-
-/**
- * Age a cached weekly reading.
- *
- * The Settings panel reports a countdown, not an absolute reset time. Once the
- * panel closes, the only honest thing to do is subtract the time that passed
- * since it was read; when the countdown reaches zero the reading is gone.
- */
-function agedLimit(limit, readAt) {
-  if (!limit || typeof limit.percent !== 'number') {
-    return null;
-  }
-  if (!limit.resetText || !Number.isFinite(readAt)) {
-    return limit;
-  }
-  const minutes = parseReset(limit.resetText);
-  if (minutes === null) {
-    return limit;
-  }
-  const left = minutes - Math.max(0, Math.floor((Date.now() - readAt) / 60_000));
-  if (left <= 0) {
-    return null;
-  }
-  return { percent: limit.percent, resetText: formatReset(left) };
-}
-
-function parseReset(text) {
-  const value = String(text ?? '').trim();
-  if (!value) {
-    return null;
-  }
-  const days = /(\d+)\s*d/.exec(value);
-  const hours = /(\d+)\s*h/.exec(value);
-  const minutes = /(\d+)\s*m/.exec(value);
-  if (!days && !hours && !minutes) {
-    return null;
-  }
-  return Number(days ? days[1] : 0) * 1440 + Number(hours ? hours[1] : 0) * 60 + Number(minutes ? minutes[1] : 0);
-}
-
-function formatReset(totalMinutes) {
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  const parts = [];
-  if (days > 0) {
-    parts.push(`${days}d`);
-  }
-  if (hours > 0) {
-    parts.push(`${hours}h`);
-  }
-  if (minutes > 0) {
-    parts.push(`${minutes}m`);
-  }
-  return parts.length ? parts.join(' ') : 'under a minute';
-}
-
-function sessionLimit(modelRow) {
-  if (!modelRow || typeof modelRow.quotaPercent !== 'number' || !Number.isFinite(modelRow.quotaPercent)) {
-    return null;
-  }
-  return {
-    percent: modelRow.quotaPercent,
-    resetText: countdown(modelRow.resetsAt),
-  };
 }
 
 /**

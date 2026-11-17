@@ -21,7 +21,7 @@ import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { BadgeInjector, parsePortList } from './cdp-badge.mjs';
+import { BadgeInjector, devtoolsEndpoints, parsePortList } from './cdp-badge.mjs';
 import { openCommand } from './platform.mjs';
 import { loadState, mergeConfig, sanitiseBuckets, saveState, serialiseBuckets, statePath } from './state.mjs';
 
@@ -63,11 +63,13 @@ const badge = argv.includes('--no-badge')
   : new BadgeInjector({
       logger: (message) => console.log(`[badge] ${message}`),
       ports: cdpPorts,
+      dashboardUrl: `http://127.0.0.1:${port}`,
       onUpdateSetting: (key, value) => {
         const message = parseMessage({ type: 'updateSetting', key, value });
         if (message) applyCommand(message);
       },
-      onObserved: (port, conversationId, viewState) => monitor?.observeConversation(port, conversationId, viewState),
+      onObserved: (port, conversationId, viewState, modelName) =>
+        monitor?.observeConversation(port, conversationId, viewState, modelName),
       onRefresh: () => {
         console.log('[badge] refresh requested');
         monitor?.refreshNow();
@@ -160,7 +162,7 @@ const SHIM = `(function () {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(message),
-        }).catch(function () {});
+        }).then(function (response) { if (response.ok) pull(); }).catch(function () {});
       },
       getState: function () {
         try { return JSON.parse(sessionStorage.getItem('agm') || '{}'); } catch (error) { return memory; }
@@ -349,12 +351,38 @@ server.on('error', async (error) => {
   process.exit(1);
 });
 
+const watchers = [];
+let wakeTimer = null;
+function watchAntigravityLaunch() {
+  const dirs = new Set(devtoolsEndpoints().map((entry) => path.dirname(entry.file)));
+  for (const dir of dirs) {
+    try {
+      if (!fs.existsSync(dir)) continue;
+      const watcher = fs.watch(dir, (_event, filename) => {
+        if (filename && !String(filename).includes('DevToolsActivePort')) return;
+        if (wakeTimer) clearTimeout(wakeTimer);
+        wakeTimer = setTimeout(() => {
+          wakeTimer = null;
+          monitor.nudgeDiscovery();
+          badge?.wake();
+        }, 300);
+        wakeTimer.unref?.();
+      });
+      watcher.on('error', () => {});
+      watchers.push(watcher);
+    } catch {
+      // Directory missing or watch unsupported; discovery polling still runs.
+    }
+  }
+}
+
 server.listen(port, '127.0.0.1', () => {
   const url = `http://127.0.0.1:${port}`;
   console.log('Antigravity Monitor companion');
   console.log(`  ${url}${shouldOpen ? '' : ' (window not opened)'}`);
   console.log(`  badge: ${badge ? 'looking for a renderer' : 'disabled'}`);
   console.log('  Ctrl+C to stop.');
+  watchAntigravityLaunch();
   monitor.start();
   if (shouldOpen) {
     openWindow(url);
@@ -362,6 +390,13 @@ server.listen(port, '127.0.0.1', () => {
 });
 
 function shutdown() {
+  if (wakeTimer) {
+    clearTimeout(wakeTimer);
+    wakeTimer = null;
+  }
+  for (const watcher of watchers) {
+    try { watcher.close(); } catch {}
+  }
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
