@@ -150,12 +150,13 @@ test('the card keeps a full 5-hour quota, because the card is the detail view', 
   assert.equal(toPayload(snapshot(17.9, 'measured', 'full', null)).card.session, null);
 });
 
-test('legacy global weekly cache cannot override a live grouped quota', async () => {
+test('missing weekly quota stays absent instead of reading legacy caches', async () => {
   const { toPayload } = await loadBadgeModule();
-  const limits = { session: null, weekly: { percent: 80, resetText: '6d 15h' } };
-
-  assert.equal(toPayload(snapshot(17.9), limits).card.limits, null);
-  assert.equal(toPayload(snapshot(17.9), { session: { percent: 97, resetText: null }, weekly: null }).card.limits, null);
+  assert.equal(toPayload(snapshot(17.9)).card.limits, null);
+  const expired = snapshot(17.9);
+  expired.quota.groups[0].buckets.push({ id: 'gemini-weekly', window: 'weekly', percent: 80,
+    resetsAt: new Date(Date.now() - 60_000).toISOString(), enabled: true });
+  assert.equal(toPayload(expired).card.limits, null);
 });
 
 test('a cached weekly countdown ages instead of lying', async () => {
@@ -166,45 +167,6 @@ test('a cached weekly countdown ages instead of lying', async () => {
   const weekly = toPayload(state).card.limits.weekly;
   assert.match(weekly.resetText, /^4d (14h|15h)/);
   assert.equal(weekly.percent, 80);
-});
-
-test('an expired weekly reading disappears rather than showing a negative countdown', async () => {
-  const { toPayload } = await loadBadgeModule();
-  const limits = { weekly: { percent: 80, resetText: '6d 15h' }, readAt: Date.now() - 10 * 86_400_000 };
-  assert.equal(toPayload(snapshot(17.9), limits).card.limits, null);
-});
-
-test('the Settings rows parse into both windows', async () => {
-  const { parseQuotaRows } = await loadBadgeModule();
-  const parsed = parseQuotaRows([
-    'Weekly Limit RemainingYou have used some of your weekly limit, it will fully refresh in 6 days, 15 hours.80%',
-    'Five Hour Limit RemainingYou have used some of your 5-hour limit, it will fully refresh in 4 hours, 48 minutes.97%',
-  ]);
-
-  assert.deepEqual(parsed, {
-    session: { percent: 97, resetText: '4h 48m' },
-    weekly: { percent: 80, resetText: '6d 15h' },
-  });
-});
-
-test('the binding limit wins when a window appears more than once', async () => {
-  const { parseQuotaRows } = await loadBadgeModule();
-  const parsed = parseQuotaRows([
-    'Weekly Limit RemainingYou have used some of your weekly limit, it will fully refresh in 6 days, 15 hours.80%',
-    'Weekly Limit RemainingYou have used some of your weekly limit, it will fully refresh in 2 days, 3 hours.100%',
-  ]);
-
-  assert.equal(parsed.weekly.percent, 80);
-  assert.equal(parsed.session, null);
-});
-
-test('unreadable rows yield nothing rather than a guess', async () => {
-  const { parseQuotaRows } = await loadBadgeModule();
-
-  assert.equal(parseQuotaRows([]), null);
-  assert.equal(parseQuotaRows(null), null);
-  assert.equal(parseQuotaRows(['Something else entirely']), null);
-  assert.equal(parseQuotaRows(['Weekly Limit Remaining, but no number']), null);
 });
 
 test('the card marks an estimate', async () => {
@@ -228,20 +190,27 @@ test('the DevTools port file is read defensively', async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('candidate endpoints cover the three hosts, in order', async () => {
-  const { devtoolsPortFiles, devtoolsEndpoints } = await loadBadgeModule();
+test('candidate endpoints cover supported desktop and Insiders hosts in order', async () => {
+  const { devtoolsEndpoints, resolveCandidateEndpoints } = await loadBadgeModule();
   const env = { APPDATA: 'C:\\Users\\test\\AppData\\Roaming' };
-  const files = devtoolsPortFiles(env, 'win32');
+  const endpoints = devtoolsEndpoints(env, 'win32');
+  const files = endpoints.map((entry: any) => entry.file);
 
-  assert.equal(files.length, 3);
+  assert.equal(files.length, 4);
   assert.match(files[0], /Antigravity\\DevToolsActivePort$/);
   assert.match(files[1], /Antigravity IDE\\DevToolsActivePort$/);
   assert.match(files[2], /Code\\DevToolsActivePort$/);
-  assert.deepEqual(devtoolsPortFiles({}, 'win32'), []);
+  assert.match(files[3], /Code - Insiders\\DevToolsActivePort$/);
+  assert.deepEqual(devtoolsEndpoints({}, 'win32'), []);
   assert.deepEqual(
-    devtoolsEndpoints(env, 'win32').map((entry: any) => entry.app),
-    ['app', 'ide', 'vscode'],
+    endpoints.map((entry: any) => entry.app),
+    ['app', 'ide', 'vscode', 'vscode'],
   );
+  assert.deepEqual(resolveCandidateEndpoints([], endpoints, () => null), [{ port: 9222, app: null }]);
+  assert.deepEqual(resolveCandidateEndpoints([9222, 9223], endpoints, () => 9222), [
+    { port: 9222, app: 'app' },
+    { port: 9223, app: null },
+  ]);
 });
 
 test('a CDP port list accepts only real ports', async () => {
@@ -268,7 +237,19 @@ test('the open conversation is read from the page URL', async () => {
     '071afef0-1ced-45ff-a48f-561043f6c279',
   );
   assert.equal(
+    conversationIdFromUrl('https://127.0.0.1:50062/chat/071afef0-1ced-45ff-a48f-561043f6c279'),
+    '071afef0-1ced-45ff-a48f-561043f6c279',
+  );
+  assert.equal(
+    conversationIdFromUrl('https://127.0.0.1:50062/thread/071afef0-1ced-45ff-a48f-561043f6c279'),
+    '071afef0-1ced-45ff-a48f-561043f6c279',
+  );
+  assert.equal(
     conversationIdFromUrl('vscode-webview://abc/index.html?conversationId=071afef0-1ced-45ff-a48f-561043f6c279'),
+    '071afef0-1ced-45ff-a48f-561043f6c279',
+  );
+  assert.equal(
+    conversationIdFromUrl('vscode-webview://abc/index.html?cascadeId=071afef0-1ced-45ff-a48f-561043f6c279'),
     '071afef0-1ced-45ff-a48f-561043f6c279',
   );
   assert.equal(conversationIdFromUrl('https://127.0.0.1:50062/'), null);
@@ -321,7 +302,7 @@ test('one instance is never left unmapped', async () => {
 
 test('the card carries the app it belongs to', async () => {
   const { toPayload } = await loadBadgeModule();
-  const payload = toPayload(snapshot(17.9), null, 'Antigravity IDE');
+  const payload = toPayload(snapshot(17.9), 'Antigravity IDE');
   assert.equal(payload.card.app, 'Antigravity IDE');
   assert.match(payload.title, /Antigravity IDE/);
   assert.equal(payload.card.title, 'Parser integration tests');
@@ -388,20 +369,8 @@ test('a matched visible conversation retains its measurement and account weekly 
   assert.equal(fresh.card.percent, null);
 });
 
-test('weekly parser handles decimals, used percentages, compact resets, and rejects ambiguity', async () => {
-  const { parseQuotaRows } = await loadBadgeModule();
-  assert.deepEqual(parseQuotaRows(['Weekly quota 72.5% remaining Resets in 3d 8h 7m']).weekly,
-    { percent: 72.5, resetText: '3d 8h 7m' });
-  assert.equal(parseQuotaRows(['Weekly usage 28% used']).weekly.percent, 72);
-  assert.equal(parseQuotaRows(['Weekly quota: used 28%']).weekly.percent, 72);
-  for (const row of ['Weekly 101% left', 'Weekly -5% left', 'Weekly 72%',
-    'Weekly 72% remaining Five-hour 95% remaining', 'Weekly 20% used 80% remaining']) {
-    assert.equal(parseQuotaRows([row]), null, row);
-  }
-});
-
 test('renderer context distinguishes home, exact routes, hash routes, and unknown webviews', async () => {
-  const { RENDERER_CONTEXT } = await loadBadgeModule();
+  const { RENDERER_CONTEXT, PROBE, INSTALL, BadgeInjector } = await loadBadgeModule();
   const id = '071afef0-1ced-45ff-a48f-561043f6c279';
   const read = (href: string) => runInNewContext(RENDERER_CONTEXT, {
     URL, location: { href }, window: {},
@@ -416,4 +385,40 @@ test('renderer context distinguishes home, exact routes, hash routes, and unknow
   assert.equal(read('vscode-webview://abc/index.html').viewState, 'unknown');
   assert.notEqual(read('http://127.0.0.1:50062/').contextKey,
     read('http://127.0.0.1:50062/c/' + id).contextKey);
+
+  // PROBE falls back to Ask placeholder or contenteditable + Turbo/model trigger when data-testid attributes are absent.
+  const matchedAskBox = runInNewContext(PROBE, {
+    document: {
+      querySelector: (sel: string) => sel.includes('Ask') ? {} : null,
+      querySelectorAll: () => [],
+    },
+  });
+  assert.equal(matchedAskBox, true);
+  const matchedRichTurbo = runInNewContext(PROBE, {
+    document: {
+      querySelector: (sel: string) => sel === '[contenteditable="true"], textarea' ? {} : null,
+      querySelectorAll: () => [{ textContent: 'Turbo' }],
+    },
+  });
+  assert.equal(matchedRichTurbo, true);
+  const rejectedEmpty = runInNewContext(PROBE, {
+    document: {
+      querySelector: () => null,
+      querySelectorAll: () => [{ textContent: 'Turbo' }],
+    },
+  });
+  assert.equal(rejectedEmpty, false);
+
+  // BadgeInjector status tracks reachable ports vs composer pages accurately.
+  const injector = new BadgeInjector();
+  assert.deepEqual(injector.getStatus(), { state: 'no-devtools', attached: 0, reachablePorts: 0, probedPages: 0 });
+  injector.reachablePorts = 1;
+  injector.probedPages = 2;
+  assert.deepEqual(injector.getStatus(), { state: 'no-composer', attached: 0, reachablePorts: 1, probedPages: 2 });
+  injector.stop();
+
+  // INSTALL replaces prior MutationObserver, aborts old global listeners on upgrade, and walks ancestors in placePill.
+  assert.match(INSTALL, /__agmObserver\.disconnect\(\)/);
+  assert.match(INSTALL, /__agmAbort\.abort\(\)/);
+  assert.match(INSTALL, /tiers = \[/);
 });

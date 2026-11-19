@@ -109,7 +109,9 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
       lastActivityAt = createdAt;
     }
 
-    const stepGeneratorModel = metadata ? asString(metadata.generatorModel) : null;
+    const stepGeneratorModel = metadata
+      ? (asString(metadata.generatorModel) ?? asString(dig(metadata, 'requestedModel', 'model')))
+      : null;
     if (stepGeneratorModel) {
       generatorModel = stepGeneratorModel;
       generatorModelIndex = index;
@@ -137,12 +139,15 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
       continue;
     }
 
-    if (type !== STEP.plannerResponse) {
+    const usage = metadata ? metadata.modelUsage : null;
+    const isPlanner = type === STEP.plannerResponse;
+    if (!isPlanner && (usage === null || usage === undefined)) {
       continue;
     }
 
-    plannerCount += 1;
-    const usage = metadata ? metadata.modelUsage : null;
+    if (isPlanner) {
+      plannerCount += 1;
+    }
     if (usage === null || usage === undefined) {
       continue;
     }
@@ -150,6 +155,9 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
     if (!parsed) {
       malformedSnapshots += 1;
       continue;
+    }
+    if (!isPlanner) {
+      plannerCount += 1;
     }
 
     measured = parsed;
@@ -220,13 +228,13 @@ export function parseModelUsage(
   if (!record) {
     return null;
   }
-  const input = safeInt(record.inputTokens);
-  const output = safeInt(record.outputTokens);
+  const input = safeInt(record.inputTokens) ?? safeInt(record.promptTokens);
+  const output = safeInt(record.outputTokens) ?? safeInt(record.completionTokens);
   if (input === null || output === null) {
     return null;
   }
-  const cacheRead = safeInt(record.cacheReadTokens) ?? 0;
-  const cacheCreate = safeInt(record.cacheCreationTokens) ?? 0;
+  const cacheRead = safeInt(record.cacheReadTokens) ?? safeInt(record.cachedInputTokens) ?? 0;
+  const cacheCreate = safeInt(record.cacheCreationTokens) ?? safeInt(record.cacheWriteTokens) ?? 0;
   const total = input + cacheRead + cacheCreate + output;
   if (!Number.isSafeInteger(total)) {
     return null;

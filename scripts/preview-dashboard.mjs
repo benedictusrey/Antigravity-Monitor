@@ -42,6 +42,7 @@ export function sampleSnapshot() {
       ],
     },
     schemaVersion: 1,
+    activeQuotaGroupId: 'gemini',
     generatedAt: now,
     status: 'ok',
     backend: {
@@ -124,6 +125,7 @@ export function sampleSnapshot() {
         cacheRead: 226_317,
         cacheCreate: 0,
         output: 4_288,
+        tokPerSec: 214.2,
         source: 'measured',
         measuredAt: iso(45_000),
       },
@@ -145,11 +147,11 @@ export function sampleSnapshot() {
       { id: 'c4', title: 'Disabling Autoot in OpenCodex', status: 'idle', stepCount: 14, lastModified: iso(260_000_000), modelName: null, percent: null, active: false },
     ],
     models: [
-      { modelId: 'MODEL_PLACEHOLDER_M318', label: 'Gemini 3.8 Flash (High)', quotaPercent: 83.65, resetsAt: new Date(now + 16_000_000).toISOString(), contextLimit: 1_048_576, maxOutput: 65_536, active: true },
-      { modelId: 'MODEL_PLACEHOLDER_M319', label: 'Gemini 3.8 Flash (Medium)', quotaPercent: 83.65, resetsAt: new Date(now + 16_000_000).toISOString(), contextLimit: 1_048_576, maxOutput: 65_536, active: false },
-      { modelId: 'MODEL_PLACEHOLDER_M26', label: 'Claude Opus 4.6 (Thinking)', quotaPercent: 100, resetsAt: new Date(now + 20_000_000).toISOString(), contextLimit: 250_000, maxOutput: 64_000, active: false },
-      { modelId: 'MODEL_PLACEHOLDER_M35', label: 'Claude Sonnet 4.6 (Thinking)', quotaPercent: 96.2, resetsAt: new Date(now + 20_000_000).toISOString(), contextLimit: 250_000, maxOutput: 64_000, active: false },
-      { modelId: 'MODEL_OPENAI_GPT_OSS_120B_MEDIUM', label: 'GPT-OSS 120B (Medium)', quotaPercent: 100, resetsAt: null, contextLimit: 131_072, maxOutput: 32_768, active: false },
+      { modelId: 'MODEL_PLACEHOLDER_M318', label: 'Gemini 3.8 Flash (High)', quotaPercent: 83.65, quotaGroup: 'Gemini Models', resetsAt: new Date(now + 16_000_000).toISOString(), contextLimit: 1_048_576, maxOutput: 65_536, active: true },
+      { modelId: 'MODEL_PLACEHOLDER_M319', label: 'Gemini 3.8 Flash (Medium)', quotaPercent: 83.65, quotaGroup: 'Gemini Models', resetsAt: new Date(now + 16_000_000).toISOString(), contextLimit: 1_048_576, maxOutput: 65_536, active: false },
+      { modelId: 'MODEL_PLACEHOLDER_M26', label: 'Claude Opus 4.6 (Thinking)', quotaPercent: 100, quotaGroup: 'Claude and GPT models', resetsAt: new Date(now + 20_000_000).toISOString(), contextLimit: 250_000, maxOutput: 64_000, active: false },
+      { modelId: 'MODEL_PLACEHOLDER_M35', label: 'Claude Sonnet 4.6 (Thinking)', quotaPercent: 96.2, quotaGroup: 'Claude and GPT models', resetsAt: new Date(now + 20_000_000).toISOString(), contextLimit: 250_000, maxOutput: 64_000, active: false },
+      { modelId: 'MODEL_OPENAI_GPT_OSS_120B_MEDIUM', label: 'GPT-OSS 120B (Medium)', quotaPercent: 100, quotaGroup: 'Claude and GPT models', resetsAt: null, contextLimit: 131_072, maxOutput: 32_768, active: false },
     ],
     account: {
       name: 'Test User',
@@ -338,7 +340,7 @@ async function main() {
       ]);
 
       const errorMatch = dom.stdout.match(/data-harness-errors="([^"]*)"/);
-      const rendered = /class="gauge__percent"|class="list__row"|class="model-card"|class="settings"/.test(dom.stdout);
+      const rendered = /class="hero-percent"|class="list__row"|class="model-cell"|class="settings-grid"/.test(dom.stdout);
 
       const ok = shot.code === 0 && rendered && !errorMatch;
       if (!ok) {

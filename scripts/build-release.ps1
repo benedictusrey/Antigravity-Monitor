@@ -16,8 +16,9 @@ foreach ($scriptName in @('Install Antigravity Monitor.sh','Install Antigravity 
 foreach ($required in @($vsix,'out\src\app\monitor.js','out\src\core\quota.js','media\icon.png','media\icon.ico','media\icon.icns','Antigravity Monitor.exe','Install Antigravity Monitor.exe','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh','assets\banners\antigravity-monitor-hero.png','assets\banners\antigravity-monitor-features.png','assets\banners\antigravity-monitor-customization.png')) {
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot $required) -PathType Leaf)) { throw "Build first; missing: $required" }
 }
-$repository = Join-Path $OutputDirectory 'repository'
-$runtime = Join-Path $OutputDirectory ('Antigravity-Monitor-' + $version)
+$staging = Join-Path $OutputDirectory 'staging'
+$repository = Join-Path $staging 'repository'
+$runtime = Join-Path $staging ('Antigravity-Monitor-' + $version)
 New-Item -ItemType Directory -Path $repository,$runtime -Force | Out-Null
 function Copy-Relative([string]$Relative, [string]$Destination) {
     $source = Join-Path $projectRoot $Relative

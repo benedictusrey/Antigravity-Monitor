@@ -13,13 +13,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases"><img src="https://img.shields.io/badge/release-v1.1.0-4daafc?style=flat-square" alt="v1.1.0 release"></a>
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases"><img src="https://img.shields.io/badge/release-v1.2.0-4daafc?style=flat-square" alt="v1.2.0 release"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d?style=flat-square" alt="Requires Node.js 22 or newer"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4daafc?style=flat-square" alt="MIT license"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases/tag/v1.1.0">Download v1.1.0</a> ·
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases/tag/v1.2.0">Download v1.2.0</a> ·
   <a href="USER_GUIDE.md">User guide</a> ·
   <a href="PRIVACY.md">Privacy</a> ·
   <a href="https://github.com/benedictusrey/Antigravity-Monitor/actions/workflows/ci.yml">Build checks</a> ·
@@ -32,11 +32,11 @@ Antigravity Monitor adds a small composer readout, a detail card, and a dashboar
 
 ## Get started
 
-Download the archive for your OS (**Antigravity-Monitor-1.1.0-windows.zip**, **Antigravity-Monitor-1.1.0-macos.zip**, or **Antigravity-Monitor-1.1.0-linux.zip**) — or **Antigravity-Monitor-1.1.0-companion.zip** for all platforms together — extract the entire folder, and keep its files together. Install [Node.js 22 or newer](https://nodejs.org/) first. No administrator or sudo access is needed.
+Download the archive for your OS (**Antigravity-Monitor-1.2.0-windows.zip**, **Antigravity-Monitor-1.2.0-macos.zip**, or **Antigravity-Monitor-1.2.0-linux.zip**), or **Antigravity-Monitor-1.2.0-companion.zip** for all platforms together, extract the entire folder, and keep its files together. Install [Node.js 22 or newer](https://nodejs.org/) first. No administrator or sudo access is needed.
 
 | Platform | Install from the extracted folder | Startup |
 |---|---|---|
-| **Windows** | Open **Install Antigravity Monitor.exe** (or `.cmd`). | Current user Startup shortcut, Run registry entry, and VS Code / Antigravity IDE / Insiders VSIX. |
+| **Windows** | Open **Install Antigravity Monitor.exe** (or `.cmd`). | Current user Startup shortcut, Run registry entry, **Antigravity (with Monitor)** Start Menu shortcut, and VS Code / Antigravity IDE / Insiders VSIX. |
 | **macOS** | Double-click **Install Antigravity Monitor.command** or run `sh "Install Antigravity Monitor.command"`. | Auto-locates `node` (Homebrew, nvm, fnm, volta), sets LaunchAgent, installs editor VSIX. |
 | **Linux** | Run `./"Install Antigravity Monitor.sh"` (or `sh "Install Antigravity Monitor.sh"`). | Auto-locates `node`, adds XDG autostart + desktop app entry, installs editor VSIX. |
 
@@ -44,7 +44,7 @@ Open Antigravity normally. The companion stays separate from the app and reconne
 
 **Windows has been tested locally. macOS and Linux implementations include discovery, storage, installers, and startup integration; native platform acceptance remains pending.** Linux needs `ps` and either `lsof` or `ss` for socket discovery, plus `xdg-open` to launch the dashboard. macOS uses `ps`, `lsof`, `open`, and `launchctl`.
 
-The white Antigravity desktop app has no VS Code extension host. It needs the companion, not only the VSIX. If its badge is missing, see [DevTools setup](USER_GUIDE.md#enable-the-inline-badge). The monitor does not patch Antigravity's installed files.
+The white Antigravity desktop app has no VS Code extension host. It needs the companion, not only the VSIX. Its inline composer snippet appears to the left of `Turbo` once Antigravity runs with `--remote-debugging-port=9222`: use **Relaunch Antigravity with badge** in the dashboard (**http://127.0.0.1:4599**), launch **Antigravity (with Monitor)** from the Windows Start Menu, or see [DevTools setup](USER_GUIDE.md#enable-the-inline-badge) (an in-app **Reload** or plain shortcut keeps DevTools off). The monitor does not patch Antigravity's installed files.
 
 > [!IMPORTANT]
 > On Windows, do not double-click the VSIX. Microsoft's Visual Studio installer cannot install VS Code extensions. Use the project installer or an editor's **Install from VSIX** command.
@@ -94,7 +94,7 @@ npm run package
 
 The companion has no third-party runtime dependencies. Development tools are pinned in the lockfile. Run `npm run live` against a running Antigravity backend for local integration checks; its diagnostic output may include conversation titles.
 
-See [Architecture](docs/ARCHITECTURE.md), [Audit and validation](docs/AUDIT.md), and [Release preparation](RELEASING.md) for implementation details and verification limits. The source, extension package, companion, and current release files use **v1.1.0**.
+See [Architecture](docs/ARCHITECTURE.md), [Audit and validation](docs/AUDIT.md), and [Release preparation](RELEASING.md) for implementation details and verification limits. The source, extension package, companion, and current release files use **v1.2.0**.
 
 On Windows, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-launchers.ps1` before installing from source or building a complete companion release. Building needs the Windows .NET Framework C# compiler. Downloaded packages already contain the launchers and need no compiler. Run `scripts/check-windows-launchers.ps1` to verify embedded icons and launch targets.
 

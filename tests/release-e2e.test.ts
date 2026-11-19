@@ -113,10 +113,11 @@ test('companion HTTP boundaries survive bad requests and custom settings survive
     assert.equal(config.snippetFiveHour, true);
     await stop(child!);
     await start();
-    const data = await request(`${origin}/api/snapshot`).then(response => response.json()) as { snapshot: { prefs: Record<string, unknown> } };
+    const data = await request(`${origin}/api/snapshot`).then(response => response.json()) as { snapshot: { prefs: Record<string, unknown>; badge: { state: string } } };
     assert.equal(data.snapshot.prefs.displayMode, 'custom');
     assert.equal(data.snapshot.prefs.snippetWeekly, true);
     assert.equal(data.snapshot.prefs.snippetResets, true);
+    assert.equal(data.snapshot.badge.state, 'disabled');
   } finally {
     if (child) await stop(child);
     fs.rmSync(folder, { recursive: true, force: true });

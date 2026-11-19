@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import * as net from 'node:net';
 import { installPaths, startupDocument } from './platform.mjs';
+import { devtoolsEndpoints } from './cdp-badge.mjs';
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const label = 'io.github.benedictusrey.antigravity-monitor';
@@ -103,7 +104,13 @@ export async function install(options = {}) {
   }
   fs.mkdirSync(locations.runtime, { recursive: true });
   fs.mkdirSync(locations.data, { recursive: true, mode: 0o700 });
-  for (const name of required) fs.cpSync(path.join(source, name), path.join(locations.runtime, name), { recursive: true, force: true });
+  for (const name of required) {
+    const dest = path.join(locations.runtime, name);
+    if (fs.existsSync(dest) && fs.statSync(dest).isDirectory()) {
+      fs.rmSync(dest, { recursive: true, force: true });
+    }
+    fs.cpSync(path.join(source, name), dest, { recursive: true, force: true });
+  }
   const shellQuote = value => "'" + value.replace(/'/g, "'\\''") + "'";
   const launcher = path.join(locations.data, process.platform === 'darwin' ? 'Open Antigravity Monitor.command' : 'open-monitor.sh');
   fs.writeFileSync(launcher, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(path.join(locations.runtime, 'tools', 'monitor-server.mjs'))} "$@"\n`, { mode: 0o700 });
@@ -162,6 +169,9 @@ export async function install(options = {}) {
   console.log(`Antigravity Monitor ${manifest.version} installed: ${locations.runtime}`);
   console.log(options.noAutostart ? 'Automatic startup disabled.' : `Startup: ${locations.autostart}`);
   console.log(`Dashboard: http://127.0.0.1:4599\nLauncher: ${launcher}\nReload editor windows after native extension installation.`);
+  if (!devtoolsEndpoints().some(entry => fs.existsSync(entry.file))) {
+    console.log('Inline composer badge: no DevTools endpoint detected yet. Quit Antigravity and relaunch with --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 to show the inline pill.');
+  }
   if (failures.length) throw new Error(`Companion installed; extension installation failed: ${failures.join(', ')}`);
 }
 

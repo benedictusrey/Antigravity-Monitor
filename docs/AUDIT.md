@@ -1,6 +1,16 @@
-# v1.1.0 release audit
+# v1.2.0 release audit
 
-Date: 17 November 2026 (updating the initial 6 November 2026 v1.0.0 baseline). Scope: local monitoring for one user running desktop Antigravity, Antigravity IDE, VS Code, and VS Code Insiders. Reviewed discovery, RPC, model catalog & dynamic quota-pool resolution, conversation selection/subagent hierarchy, companion startup & `DevToolsActivePort` watching, CDP badge bridge, dashboard UI, installer health preflight, and release packaging.
+Date: 19 November 2026 (updating the 17 November 2026 v1.1.0 and 6 November 2026 v1.0.0 baselines). Scope: local monitoring for desktop Antigravity, Antigravity IDE, VS Code, and VS Code Insiders, covering forward-compatible backend schemas, quota-pool disambiguation, catalog slug humanization, DevTools attachment (`VERSION = 24`), `data-terminal` UI/motion updates, and universal installer packaging.
+
+## v1.2.0 Findings fixed
+
+| Priority | Concrete failure | Fix and evidence |
+|---|---|---|
+| High | Hardcoded Argon group matching failed to distinguish sibling pools or future pools when reset percentages tied (e.g. `Claude and GPT models` vs `Gemini 4 Argon` both at 100% weekly). | Replaced hardcoded matching in `resolveQuotaGroup` (`src/core/quota.ts`) with pool description membership parsing, distinctive dedicated-pool token matching, family-aware tie-breaking, generic family fallback, and window aliases, synced via `snapshot.activeQuotaGroupId`; unit and live checks pass (`24/24` picker models resolved). |
+| High | Newer backend model entries omitting `displayName` or introducing slugs (such as `M532..M535` `Gemini 4 Neon`, `M537`, `M578` `Gemini 4 Hydrogen Sonar`) risked unresolved IDs or missing pricing estimates. | Added `FALLBACK_MODELS`, `humanizeSlug` in `buildCatalog`, expanded `parseUserStatus` field aliases (`modelOrAlias.alias`, `record.modelId`, `maxContextTokens`), name-based pricing fallback, raised model row cap (`24` -> `64`), and `Promise.allSettled` retry backoff (`10s`); unit and live checks pass. |
+| High | Missing `DevToolsActivePort` left desktop users with an invisible badge and zero dashboard diagnostic; reloading/normal Start Menu icons dropped `--remote-debugging-port=9222`; ZIP headers kept `\` separators; and in-page upgrades leaked listeners and orphaned the `MutationObserver`. | Exposed `badge` status + 1-click **Relaunch Antigravity with badge** (`relaunchApp`) in `/api/snapshot` & Overview notice, probed `127.0.0.1:9222` fallback, added semantic `PROBE`/`placePill` ancestor fallback (`VERSION = 24`), replaced `MutationObserver` & added `AbortController` cleanup, added top-level Start Menu `"Antigravity (with Monitor)"` shortcut & upgrade cleanup, and normalized ZIP headers to `/`; unit & archive checks pass. |
+| Medium | Future Antigravity backend updates (new step response types, alternate token field names, bare `RUNNING`/`IDLE` statuses, renamed language-server binaries) could silently drop telemetry or discovery. | Updated `src/core/analysis.ts`, `src/core/select.ts`, `src/core/discovery.ts`, `src/app/monitor.ts`, and `tools/cdp-badge.mjs` (`Code - Insiders` support); unit regression tests pass. |
+| Low | Launcher build/check scripts hardcoded `v1.1.0` strings, `release/v1.1.0` mixed unpacked staging dirs at top level, and dead quota helpers (`parseQuotaRows`, `sanitiseLimits`, `devtoolsPortFiles`) remained in `tools/`. | Parameterized `scripts/build-windows-launchers.ps1` and `scripts/check-windows-launchers.ps1`, organized unpacked dirs under `staging/`, and removed unused legacy helpers (~90 lines). |
 
 ## v1.1.0 Findings fixed
 
@@ -36,10 +46,10 @@ Date: 17 November 2026 (updating the initial 6 November 2026 v1.0.0 baseline). S
 ## Validation
 
 - TypeScript compilation and **214 automated tests passed**, with no skips or failures (`npm test`).
-- Static UI checks (`design-taste-frontend` `lint.mjs --app`) returned `0 FAIL` on redesigned dashboard assets; live headless Edge captures verified dark and light companion themes across Overview, Threads, Models, and Settings views at desktop (`1280px`) and companion (`640px`) viewports without console errors.
-- Live backend verification (`npm run live`) ran against local `Antigravity.exe` with `Gemini Models`, `Claude and GPT models`, and `Gemini 4 Argon` quota pools.
-- Windows launcher build and check scripts verified embedded icons, `v1.1.0` product metadata, launch targets, and missing-file guards.
-- Local Windows installation and companion restart persisted preferences (`HKCU\...\Run` + Startup shortcut + `antigravity-monitor-1.1.0.vsix` editor install).
+- Contrast check (`antislop-human/contrast-check.py`): all **16** dark and light pairs PASS WCAG AA (minimum ratio `4.96:1`); Mode 2 UI findings are logged separately in [anti-slop/audit-001-2026-11-19.md](../anti-slop/audit-001-2026-11-19.md) awaiting maintainer selection.
+- Live backend verification (`npm run live`) ran against local `Antigravity.exe` (`https:50890`) with `Gemini Models`, `Claude and GPT models`, and `Gemini 4 Argon` quota pools (`24` picker models).
+- Windows launcher build and check scripts verified embedded icons, `v1.2.0` product metadata, launch targets, and missing-file guards.
+- Local Windows installation and companion restart persisted preferences (`HKCU\...\Run` + Startup shortcut + top-level and folder `Antigravity (with Monitor).lnk` shortcuts + VSIX); live Electron CDP inline badge attachment verified (`attached: 1`, `probedPages: 5`), and `v1.2.0` archives, VSIX contents, normalized `/` ZIP headers, POSIX `0100755` bits, and `SHA256SUMS.txt` were verified after packaging.
 - The isolated companion process test covers hostile Host, cross-origin and non-JSON commands, malformed URLs, invalid assets, and custom preferences retained after a real process restart. It uses temporary platform-specific data paths.
 - Atomic-write failure preserves the prior JSON. Loopback RPC rejection is verified for HTTP and HTTPS before credentials are sent.
 - Browser checks cover all four dashboard tabs, keyboard navigation, six snippet choices, immediate preview, saved acknowledgements, empty-choice fallback, model and route switches, and expiry without new snapshots.
@@ -47,7 +57,6 @@ Date: 17 November 2026 (updating the initial 6 November 2026 v1.0.0 baseline). S
 - The generated POSIX script passed shell syntax and controlled execution checks under Git Bash, including macOS ancestry, spaced paths, empty-`lsof` fallback, exact PID matching, and backend target parsing.
 - All included platform tools passed JavaScript syntax checks. Startup document tests cover platform paths, XML escaping, spaces, and Linux field codes.
 - Focused independent source reviews covered monitor cancellation, warning state, payload-limit retry, installer safety, and final HTTP/layout changes. No remaining blocker was identified in that reviewed scope.
-- The Windows companion and native editor packages were installed as **v1.1.0**. Startup shortcut, `HKCU\...\Run` auto-start, and automatic quota refresh were checked locally.
 - The dependency audit reported **zero known vulnerabilities** after the patched build-tool dependency was installed. This is a registry observation, not proof that all code is free of vulnerabilities.
 
 ## Release boundaries
@@ -56,7 +65,7 @@ No audit can establish the absence of all bugs. This result is evidence for the 
 
 Native macOS/Linux installation, login startup, app attachment, update, and uninstall have not run on those operating systems. Their implementations, fixture tests, shell execution, and source reviews are included; native acceptance remains pending. The prepared CI workflow also has not run remotely before upload.
 
-Native editor activation and inline injection after an editor restart were not repeated in this pass; installed version checks and activation/status tests cover their wiring. The white desktop app and standalone companion were exercised live. Screen readers, high-contrast themes, multiple windows behind one shared backend, and prolonged soak/load testing remain open.
+Native editor activation after an editor restart were not repeated in this pass; installed version checks and activation/status tests cover their wiring. The white desktop app (`attached: 1`, `probedPages: 5`) and standalone companion (`http://127.0.0.1:4599`, **Relaunch Antigravity with badge** inline confirmation flow) were verified live. Screen readers, high-contrast themes, multiple windows behind one shared backend, and prolonged soak/load testing remain open.
 
 Quotas are polled rather than pushed. Backend support, latency, and retries affect freshness. Installers preserve persisted state and backups, but forced process replacement can lose a few seconds of unflushed telemetry. Same-user hostile software is outside the companion's isolation boundary.
 

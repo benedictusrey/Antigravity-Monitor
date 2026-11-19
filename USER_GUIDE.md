@@ -1,6 +1,6 @@
 # Antigravity Monitor user guide
 
-This guide covers v1.1.0. The white desktop app uses a separate companion. Antigravity IDE and VS Code can also run the native extension, which starts the installed companion automatically if needed.
+This guide covers v1.2.0. The white desktop app uses a separate companion. Antigravity IDE and VS Code can also run the native extension, which starts the installed companion automatically if needed.
 
 ## Install and update
 
@@ -8,7 +8,7 @@ Extract the complete companion ZIP. Install Node.js 22 or newer, then run the in
 
 The installer copies a stable runtime, preserves settings, creates startup integration, and starts the companion. Re-run it to update an existing installation. It identifies the monitor before stopping a process on port 4599 and saves the previous runtime as a backup. Do not run it with administrator or sudo privileges.
 
-Native editor extension installation depends on finding the editor CLI. If skipped, use **Extensions: Install from VSIX** inside the editor and select `antigravity-monitor-1.1.0.vsix`. Reload editor windows after installation.
+Native editor extension installation depends on finding the editor CLI. If skipped, use **Extensions: Install from VSIX** inside the editor and select `antigravity-monitor-1.2.0.vsix`. Reload editor windows after installation.
 
 macOS and Linux installation code is included, with native platform acceptance still pending. macOS installation requires a logged-in graphical session for the user LaunchAgent. Linux startup requires a desktop session that supports XDG autostart; it is not a system service.
 
@@ -16,9 +16,17 @@ Windows users can open **Install Antigravity Monitor.exe** for installation and 
 
 ## Enable the inline badge
 
-The companion looks for `DevToolsActivePort` beneath the app's normal user configuration directory. If the white app already exposes this endpoint, the badge attaches automatically. Closing and reopening the app is supported while the companion stays running.
+The companion looks for `DevToolsActivePort` beneath the app's normal user configuration directory and also probes `127.0.0.1:9222`. If the white app already exposes this endpoint, the badge attaches automatically. Closing and reopening the app is supported while the companion stays running.
 
-If no endpoint is available, quit the app normally and relaunch it with a loopback remote-debugging port. On macOS, for an app named Antigravity:
+If no endpoint is available, either click **Relaunch Antigravity with badge** right inside the Overview warning on **http://127.0.0.1:4599**, or quit Antigravity completely (in-app **Reload** keeps existing process flags) and relaunch it with a loopback remote-debugging port:
+
+- **Windows:** Open **Antigravity (with Monitor)** from your Windows Start Menu (`Start Menu\Programs` or `Programs\Antigravity Monitor`), or run:
+
+```cmd
+"%LOCALAPPDATA%\Programs\antigravity\Antigravity.exe" --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1
+```
+
+- **macOS** (for an app named Antigravity):
 
 ```sh
 open -a Antigravity --args --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1
@@ -87,7 +95,7 @@ On Windows, remove the **Antigravity Monitor** Startup shortcut to disable futur
 
 | Problem | Check |
 |---|---|
-| No badge | Companion health, the app's DevTools endpoint, and the selected debug port. Native status bars do not need DevTools. |
+| No badge | Open **Settings -> Actions & diagnostics** (`Inline badge`), or click **Relaunch Antigravity with badge** in Overview. An in-app Reload keeps `--remote-debugging-port` off; native IDE/VS Code status bars do not need DevTools. |
 | No backend | Start the app and open its agent UI. On Linux check `lsof` or `ss` availability and process permissions. |
 | Quota unavailable | Backend connectivity, supported quota RPC, and whether the selected model maps to a known group. Refresh retries immediately. |
 | Port 4599 occupied | Identify the existing service. Installers refuse unrelated owners; do not kill an unknown process. |

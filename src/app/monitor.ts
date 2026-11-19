@@ -660,7 +660,7 @@ export class Monitor {
         signal,
       );
       if (this.disposed || signal.aborted || this.instances.get(target.id)?.target !== target) return;
-      const steps = asArray(dig(payload, 'steps'));
+      const steps = asArray(dig(payload, 'steps') ?? dig(payload, 'response', 'steps'));
       const analysis = analyzeSteps(steps);
       if (
         (analysis.modelId && resolveModel(analysis.modelId, this.catalog)?.source === 'unknown') ||
@@ -868,22 +868,42 @@ export class Monitor {
     }
     this.lastStatusRefresh = Date.now();
 
-    try {
-      const [models, status] = await Promise.all([
-        this.call(target, 'GetAvailableModels', {}, SUMMARY_TIMEOUT_MS, signal),
-        this.call(target, 'GetUserStatus', {}, SUMMARY_TIMEOUT_MS, signal),
-      ]);
-      if (this.disposed || signal.aborted || this.instances.get(target.id)?.target !== target) return;
-      this.catalog = buildCatalog(models);
-      const summary = parseUserStatus(status, this.catalog);
+    const [modelsResult, statusResult] = await Promise.allSettled([
+      this.call(target, 'GetAvailableModels', {}, SUMMARY_TIMEOUT_MS, signal),
+      this.call(target, 'GetUserStatus', {}, SUMMARY_TIMEOUT_MS, signal),
+    ]);
+    if (this.disposed || signal.aborted || this.instances.get(target.id)?.target !== target) return;
+
+    let failed = false;
+    if (modelsResult.status === 'fulfilled') {
+      this.catalog = buildCatalog(modelsResult.value);
+    } else {
+      failed = true;
+      if (!(modelsResult.reason instanceof RpcError && modelsResult.reason.code === 'aborted')) {
+        this.deps.logger(
+          `Model catalogue refresh failed: ${modelsResult.reason instanceof Error ? modelsResult.reason.message : String(modelsResult.reason)}`,
+        );
+      }
+    }
+
+    if (statusResult.status === 'fulfilled') {
+      const summary = parseUserStatus(statusResult.value, this.catalog);
       mergePickerIntoCatalog(this.catalog, summary.picker);
       this.account = summary.account;
       this.picker = summary.picker;
-      this.deps.logger(`Model catalogue loaded: ${this.catalog.size} entries, ${this.picker.length} picker entries`);
-    } catch (error) {
-      if (!(error instanceof RpcError && error.code === 'aborted')) {
-        this.deps.logger(`Account refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+    } else {
+      failed = true;
+      if (!(statusResult.reason instanceof RpcError && statusResult.reason.code === 'aborted')) {
+        this.deps.logger(
+          `Account refresh failed: ${statusResult.reason instanceof Error ? statusResult.reason.message : String(statusResult.reason)}`,
+        );
       }
+    }
+
+    if (failed || this.catalog.size === 0) {
+      this.lastStatusRefresh = Date.now() - STATUS_REFRESH_MS + 10_000;
+    } else {
+      this.deps.logger(`Model catalogue loaded: ${this.catalog.size} entries, ${this.picker.length} picker entries`);
     }
   }
 
@@ -945,10 +965,20 @@ export class Monitor {
     const composerModelName = composerSpec?.name ?? composerRaw;
     const activeQuotaModelId =
       composerSpec?.id ?? conversationView?.selectedModelId ?? conversationView?.modelId ?? null;
+    const quota = this.quotaForBackend(focus?.target.id ?? null);
+    const activeModelLabel =
+      composerModelName ?? conversationView?.selectedModelName ?? conversationView?.modelName ?? null;
+    const matchedPicker = activeQuotaModelId ? quotaFor(activeQuotaModelId, this.picker) : null;
+    const activeQuotaGroup = resolveQuotaGroup(
+      quota.groups,
+      activeModelLabel,
+      matchedPicker ? { resetsAt: matchedPicker.resetsAt, percent: matchedPicker.quotaPercent } : null,
+    );
 
     return {
       schemaVersion: 1,
-      quota: this.quotaForBackend(focus?.target.id ?? null),
+      quota,
+      activeQuotaGroupId: activeQuotaGroup?.id ?? null,
       generatedAt: Date.now(),
       status: this.deriveStatus(focus, active),
       backend: focus ? this.toBackendView(focus.status, true) : null,
@@ -1072,7 +1102,7 @@ export class Monitor {
         cacheCreate: costTokens?.cacheCreate ?? 0,
         output: costTokens?.output ?? 0,
         calls: costTokens?.calls ?? 0,
-        costUsd: costTokens ? estimateCost(costTokens, modelId) : null,
+        costUsd: costTokens ? estimateCost(costTokens, modelId, undefined, spec?.name) : null,
       },
     };
   }
@@ -1140,7 +1170,7 @@ export class Monitor {
           tag: spec.tag ?? null,
           active: spec.id === activeModelId,
         });
-        if (rows.length >= 24) {
+        if (rows.length >= 64) {
           break;
         }
       }
@@ -1322,10 +1352,13 @@ function snapshotSignature(snapshot: Snapshot): string {
     conversation?.usage?.capacity ?? null,
     conversation?.usage?.source ?? null,
     conversation?.modelId ?? null,
+    conversation?.modelName ?? null,
     conversation?.selectedModelId ?? null,
+    conversation?.selectedModelName ?? null,
     conversation?.compressed ?? false,
     snapshot.pinnedConversationId ?? null,
     snapshot.composerModelName ?? null,
+    snapshot.activeQuotaGroupId ?? null,
     snapshot.lastError,
     snapshot.prefs,
     snapshot.quota,

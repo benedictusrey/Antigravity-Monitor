@@ -26,14 +26,32 @@ const { quotaAt, quotaBucket, resolveQuotaGroup } = require('../out/src/core/quo
 const { snippetPreferences } = require('../out/src/core/snippet.js');
 const { formatRate } = require('../out/src/core/format.js');
 
-const PROBE = `!!document.querySelector('[data-testid="agent-input-box"]')`;
+export const PROBE = `(function(){
+  if (document.querySelector('[data-testid="agent-input-box"], [data-testid*="composer"], [data-testid*="chat-input"], [data-testid="model-selector-trigger"], [data-testid="permissions-selector-trigger"]')) return true;
+  if (document.querySelector('[contenteditable="true"][aria-label*="Ask" i], [contenteditable="true"][data-placeholder*="Ask" i], textarea[placeholder*="Ask" i], [aria-label*="chat input" i]')) return true;
+  if (!document.querySelector('[contenteditable="true"], textarea')) return false;
+  var btns = document.querySelectorAll('button, [role="button"]');
+  for (var i = 0; i < btns.length; i++) {
+    var t = (btns[i].textContent || '').trim();
+    if (/^(?:Turbo|Auto|Manual|Ask before edit|Orchestrator\\b|Gemini\\b|Claude\\b|GPT\\b)/i.test(t) && t.length <= 48) return true;
+  }
+  return false;
+})()`;
 
 /** Bump when the injected script changes; the guard below is built from it. */
-const VERSION = 21;
+const VERSION = 24;
 
 export const INSTALL = `(function () {
   if (window.__agmVersion === ${VERSION}) return true;
   window.__agmVersion = ${VERSION};
+
+  if (window.__agmAbort) {
+    try { window.__agmAbort.abort(); } catch (_) {}
+  }
+  var ac = typeof AbortController === 'function' ? new AbortController() : null;
+  window.__agmAbort = ac;
+  var listenOpts = ac ? { signal: ac.signal } : undefined;
+  var captureOpts = ac ? { capture: true, signal: ac.signal } : true;
 
   var owner = 'agm-' + Math.random().toString(36).slice(2);
   window.__agmOwner = owner;
@@ -153,11 +171,12 @@ export const INSTALL = `(function () {
       'flex:0 1 auto',
       'user-select:none',
       'cursor:pointer',
-      'transition:background-color 120ms ease,opacity 160ms ease'
+      'border:1px solid transparent',
+      'transition:background-color 150ms cubic-bezier(0.2,0.8,0.2,1),border-color 150ms cubic-bezier(0.2,0.8,0.2,1),transform 90ms cubic-bezier(0.2,0.8,0.2,1),opacity 160ms ease'
     ].join(';');
     if (reducedMotion) pill.style.transition = 'none';
 
-    dot = mk('span', 'width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 auto');
+    dot = mk('span', 'width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 auto;transition:background-color 180ms ease');
     label = mk('span', 'overflow:hidden;text-overflow:ellipsis;min-width:0');
     pill.appendChild(dot);
     pill.appendChild(label);
@@ -173,10 +192,21 @@ export const INSTALL = `(function () {
       }
     });
     pill.addEventListener('mouseenter', function () {
-      if (!stale) pill.style.backgroundColor = 'var(--secondary,rgba(255,255,255,0.08))';
+      if (!stale) {
+        pill.style.backgroundColor = 'var(--secondary,rgba(255,255,255,0.08))';
+        pill.style.borderColor = 'var(--border,rgba(255,255,255,0.12))';
+      }
     });
     pill.addEventListener('mouseleave', function () {
       pill.style.backgroundColor = 'transparent';
+      pill.style.borderColor = 'transparent';
+      if (!reducedMotion) pill.style.transform = 'scale(1)';
+    });
+    pill.addEventListener('pointerdown', function () {
+      if (!reducedMotion) pill.style.transform = 'scale(0.985)';
+    });
+    pill.addEventListener('pointerup', function () {
+      if (!reducedMotion) pill.style.transform = 'scale(1)';
     });
     pill.addEventListener('focus', function () {
       pill.style.outline = '1px solid var(--ring,#4daafc)';
@@ -190,11 +220,44 @@ export const INSTALL = `(function () {
   function placePill() {
     var turbo = document.querySelector('[data-testid="permissions-selector-trigger"]');
     var group = turbo && turbo.parentElement;
-    if (!group || !group.parentElement) return false;
-    if (pill.parentElement !== group.parentElement || pill.nextSibling !== group) {
-      group.parentElement.insertBefore(pill, group);
+    if (group && group.parentElement) {
+      if (pill.parentElement !== group.parentElement || pill.nextSibling !== group) {
+        group.parentElement.insertBefore(pill, group);
+      }
+      return true;
     }
-    return true;
+    var model = document.querySelector('[data-testid="model-selector-trigger"], [data-testid*="model-selector"], [data-testid*="model-picker"], button[aria-label*="Model" i]');
+    var bar = model && model.parentElement && model.parentElement.parentElement;
+    if (bar && model.parentElement) {
+      if (pill.parentElement !== bar) {
+        bar.insertBefore(pill, model.parentElement.nextSibling);
+      }
+      return true;
+    }
+    // Fallback when data-testid attributes change: prefer mode triggers (Turbo/Auto/Manual) then model triggers.
+    var buttons = document.querySelectorAll('button, [role="button"]');
+    var tiers = [/^(?:Turbo|Auto|Manual|Ask before edit)\b/i, /^(?:Orchestrator|Gemini|Claude|GPT)\b/i];
+    for (var pass = 0; pass < tiers.length; pass++) {
+      for (var i = 0; i < buttons.length; i++) {
+        var btn = buttons[i];
+        if (!btn || btn === pill || btn.offsetParent === null || btn.closest('[data-agm-badge], [data-agm-card]')) continue;
+        var txt = (btn.textContent || '').trim();
+        if (!tiers[pass].test(txt) || txt.length > 48) continue;
+        var row = btn.parentElement;
+        for (var hop = 0; hop < 3 && row; hop++) {
+          if (row.offsetHeight > 0 && row.offsetHeight <= 72 && row.offsetWidth > btn.offsetWidth + 20 && row.querySelectorAll('button, [role="button"]').length >= 2) {
+            var child = btn;
+            while (child && child.parentElement !== row) child = child.parentElement;
+            if (child && (pill.parentElement !== row || pill.nextSibling !== child)) {
+              row.insertBefore(pill, child);
+            }
+            return true;
+          }
+          row = row.parentElement;
+        }
+      }
+    }
+    return false;
   }
 
   function renderPill() {
@@ -266,7 +329,7 @@ export const INSTALL = `(function () {
     var right = mk('div', 'display:flex;flex-direction:column;gap:4px;min-width:0;align-items:stretch');
     var value = mk('span', 'color:var(--foreground,#fff);font-size:13px;line-height:1.4;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere');
     var barTrack = mk('div', 'height:4px;border-radius:999px;background:rgba(128,128,128,0.22);overflow:hidden');
-    var barFill = mk('div', 'height:100%;width:0;border-radius:999px;background:var(--ring,#4daafc);transition:width 200ms ease,background-color 200ms ease');
+    var barFill = mk('div', 'height:100%;width:100%;border-radius:999px;background:var(--ring,#4daafc);transform-origin:left center;transform:scaleX(0);transition:transform 240ms cubic-bezier(0.22,1,0.36,1),background-color 200ms ease');
     if (reducedMotion) barFill.style.transition = 'none';
     barTrack.appendChild(barFill);
     right.appendChild(value);
@@ -283,7 +346,7 @@ export const INSTALL = `(function () {
     parts.value.style.color = tone || 'var(--foreground,#fff)';
     if (limit && typeof limit.percent === 'number' && isFinite(limit.percent)) {
       parts.barTrack.style.display = 'block';
-      parts.barFill.style.width = Math.max(0, Math.min(100, limit.percent)) + '%';
+      parts.barFill.style.transform = 'scaleX(' + (Math.max(0, Math.min(100, limit.percent)) / 100).toFixed(4) + ')';
       parts.barFill.style.background = tone || '#3b9eff';
     } else {
       parts.barTrack.style.display = 'none';
@@ -323,8 +386,12 @@ export const INSTALL = `(function () {
       'font-size:14px',
       'line-height:1.45',
       'display:none',
-      'user-select:none'
+      'user-select:none',
+      'opacity:0',
+      'transform:translateY(6px) scale(0.985)',
+      'transition:opacity 180ms cubic-bezier(0.22,1,0.36,1),transform 180ms cubic-bezier(0.22,1,0.36,1)'
     ].join(';');
+    if (reducedMotion) card.style.transition = 'none';
 
     var head = mk('div', 'display:flex;align-items:flex-start;justify-content:space-between;gap:10px');
     var ident = mk('div', 'display:flex;flex-direction:column;gap:1px;min-width:0;overflow:hidden');
@@ -377,7 +444,7 @@ export const INSTALL = `(function () {
     var percent = mk('div', 'font-size:30px;font-weight:600;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;margin:6px 0 8px');
 
     var track = mk('div', 'height:6px;border-radius:999px;background:rgba(128,128,128,0.28);overflow:hidden');
-    var fill = mk('div', 'height:100%;width:0;border-radius:999px;background:currentColor;transition:width 240ms ease,background-color 200ms ease');
+    var fill = mk('div', 'height:100%;width:100%;border-radius:999px;background:currentColor;transform-origin:left center;transform:scaleX(0);transition:transform 240ms cubic-bezier(0.22,1,0.36,1),background-color 200ms ease');
     if (reducedMotion) fill.style.transition = 'none';
     track.appendChild(fill);
 
@@ -589,7 +656,7 @@ export const INSTALL = `(function () {
 
     function finish(ok) {
       if (!cardParts) return;
-      cardParts.copy.textContent = ok ? 'Copied' : 'Copy failed';
+      cardParts.copy.textContent = ok ? 'Copied \\u2713' : 'Copy failed';
       if (copyTimer) clearTimeout(copyTimer);
       copyTimer = setTimeout(function () {
         copyTimer = null;
@@ -648,7 +715,7 @@ export const INSTALL = `(function () {
     cardParts.percent.textContent = values.percentText;
     cardParts.percent.style.color = values.color === 'currentColor' ? 'var(--foreground,#fff)' : values.color;
 
-    cardParts.fill.style.width = Math.max(0, Math.min(100, values.percent)) + '%';
+    cardParts.fill.style.transform = 'scaleX(' + (Math.max(0, Math.min(100, values.percent)) / 100).toFixed(4) + ')';
     cardParts.fill.parentElement.style.display = values.percent === null ? 'none' : 'block';
     cardParts.fill.style.background = values.color === 'currentColor' ? 'var(--foreground,#fff)' : values.color;
 
@@ -701,7 +768,13 @@ export const INSTALL = `(function () {
   function toggleCard(next) {
     if (!next || !last || !last.show) {
       open = false;
-      if (card) card.style.display = 'none';
+      if (card) {
+        card.style.display = 'none';
+        if (!reducedMotion) {
+          card.style.opacity = '0';
+          card.style.transform = 'translateY(6px) scale(0.985)';
+        }
+      }
       if (pill) {
         pill.setAttribute('aria-expanded', 'false');
         if (last) {
@@ -714,6 +787,19 @@ export const INSTALL = `(function () {
     open = true;
     card.style.display = 'block';
     renderCard();
+    if (reducedMotion) {
+      card.style.opacity = '1';
+      card.style.transform = 'none';
+    } else {
+      card.style.opacity = '0';
+      card.style.transform = 'translateY(6px) scale(0.985)';
+      requestAnimationFrame(function () {
+        if (card && open) {
+          card.style.opacity = '1';
+          card.style.transform = 'translateY(0) scale(1)';
+        }
+      });
+    }
     if (pill) {
       pill.setAttribute('aria-expanded', 'true');
       pill.setAttribute('aria-label', last.aria + ' Close details.');
@@ -781,19 +867,19 @@ export const INSTALL = `(function () {
     if (window.__agmOwner !== owner) { clearInterval(contextTimer); return; }
     if (!document.hidden) checkConversation();
   }, 250);
-  window.addEventListener('popstate', checkConversation);
-  window.addEventListener('hashchange', checkConversation);
-  window.addEventListener('focus', checkConversation);
+  window.addEventListener('popstate', checkConversation, listenOpts);
+  window.addEventListener('hashchange', checkConversation, listenOpts);
+  window.addEventListener('focus', checkConversation, listenOpts);
 
-  if (!window.__agmObserver) {
-    var scheduled = false;
-    window.__agmObserver = new MutationObserver(function () {
-      scheduled = false;
-      if (!last || !last.show) return;
-      if (!pill || !pill.isConnected) renderPill();
-    });
-    window.__agmObserver.observe(document.body, { childList: true, subtree: true });
+  if (window.__agmObserver) {
+    try { window.__agmObserver.disconnect(); } catch (_) {}
   }
+  window.__agmObserver = new MutationObserver(function () {
+    if (window.__agmOwner !== owner) return;
+    if (!last || !last.show) return;
+    if (!pill || !pill.isConnected) renderPill();
+  });
+  window.__agmObserver.observe(document.body, { childList: true, subtree: true });
 
   function checkStale() {
     if (!last || !last.show) return;
@@ -813,18 +899,18 @@ export const INSTALL = `(function () {
   }, 1000);
   // A background window throttles timers to roughly once a minute, which is
   // exactly when a stale number must not be shown.
-    document.addEventListener('visibilitychange', function () {
+  document.addEventListener('visibilitychange', function () {
     if (window.__agmOwner !== owner) return;
     checkStale();
-  });
+  }, listenOpts);
   window.addEventListener('focus', function () {
     if (window.__agmOwner !== owner) return;
     checkStale();
-  });
+  }, listenOpts);
   window.addEventListener('resize', function () {
     if (window.__agmOwner !== owner) return;
     if (open) positionCard();
-  });
+  }, listenOpts);
   document.addEventListener(
     'mousedown',
     function (event) {
@@ -832,7 +918,7 @@ export const INSTALL = `(function () {
       if ((card && card.contains(event.target)) || (pill && pill.contains(event.target))) return;
       toggleCard(false);
     },
-    true
+    captureOpts
   );
   document.addEventListener('keydown', function (event) {
     if (window.__agmOwner !== owner) return;
@@ -840,7 +926,7 @@ export const INSTALL = `(function () {
       toggleCard(false);
       if (pill) pill.focus({ preventScroll: true });
     }
-  });
+  }, listenOpts);
 
   return true;
 })()`;
@@ -934,6 +1020,26 @@ class CdpConnection {
 }
 
 /** Candidate DevTools endpoints, most likely first. */
+export function resolveCandidateEndpoints(explicitPorts = [], endpoints = devtoolsEndpoints(), readPort = readDevtoolsPort) {
+  const list = [];
+  for (const entry of endpoints) {
+    const port = readPort(entry.file);
+    if (port && !list.some((existing) => existing.port === port)) {
+      list.push({ port, app: entry.app });
+    }
+  }
+  for (const port of explicitPorts) {
+    if (!list.some((entry) => entry.port === port)) {
+      list.push({ port, app: null });
+    }
+  }
+  if (!list.some((entry) => entry.port === 9222)) {
+    // Fallback for Electron builds launched with --remote-debugging-port=9222 without a port file.
+    list.push({ port: 9222, app: null });
+  }
+  return list;
+}
+
 export function devtoolsEndpoints(env = process.env, platform = process.platform, home) {
   const appData = configRoot(env, platform, home);
   if (!appData) {
@@ -944,11 +1050,8 @@ export function devtoolsEndpoints(env = process.env, platform = process.platform
     { app: 'app', file: join(appData, 'Antigravity', 'DevToolsActivePort') },
     { app: 'ide', file: join(appData, 'Antigravity IDE', 'DevToolsActivePort') },
     { app: 'vscode', file: join(appData, 'Code', 'DevToolsActivePort') },
+    { app: 'vscode', file: join(appData, 'Code - Insiders', 'DevToolsActivePort') },
   ];
-}
-
-export function devtoolsPortFiles(env = process.env, platform = process.platform, home) {
-  return devtoolsEndpoints(env, platform, home).map((entry) => entry.file);
 }
 
 /** Parse `--cdp-port 9222,9223` without turning a typo into a random port. */
@@ -983,17 +1086,18 @@ export function readDevtoolsPort(file) {
 export function readRendererContext() {
   const url = new URL(location.href);
   const route = url.hash.startsWith('#/') ? url.hash.slice(1) : url.pathname;
-  const direct = /\/c\/([0-9a-f-]{8,})(?:[/?#]|$)/i.exec(route);
-  const query = url.searchParams.get('conversationId');
+  const routeRe = /(?:^|\/)(?:c|chat|conversation|t|thread)\/([0-9a-f-]{8,})(?:[/?#]|$)/i;
+  const direct = routeRe.exec(route);
+  const query = url.searchParams.get('conversationId') || url.searchParams.get('cascadeId');
   let conversationId = direct ? direct[1] : query && /^[0-9a-f-]{8,}$/i.test(query) ? query : null;
-  const composer = !!document.querySelector('[data-testid="agent-input-box"]');
+  const composer = !!document.querySelector('[data-testid="agent-input-box"], [data-testid*="composer"], [data-testid*="chat-input"]');
   const local = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
   const newThread = composer && local && /^\/(?:new|new-chat|chat\/new)?\/?$/.test(route);
   if (!conversationId && !newThread) {
-    const selected = document.querySelector('[aria-current="page"][href*="/c/"], [data-conversation-id][data-active="true"], [data-testid="conversation-row-sidebar"][data-active="true"]');
+    const selected = document.querySelector('[aria-current="page"][href*="/c/"], [aria-current="page"][href*="/chat/"], [data-conversation-id][data-active="true"], [data-testid="conversation-row-sidebar"][data-active="true"]');
     if (selected) {
       const value = selected.getAttribute('data-conversation-id') || selected.getAttribute('href') || '';
-      const match = /(?:^|\/c\/)([0-9a-f-]{8,})(?:[/?#]|$)/i.exec(value);
+      const match = /(?:^|\/(?:c|chat|conversation|t|thread)\/)([0-9a-f-]{8,})(?:[/?#]|$)/i.exec(value);
       conversationId = match ? match[1] : null;
     }
   }
@@ -1010,7 +1114,7 @@ export function readRendererContext() {
   const key = viewState + ':' + (conversationId || route);
   let hash = 0;
   for (let index = 0; index < key.length; index++) hash = ((hash << 5) - hash + key.charCodeAt(index)) | 0;
-  const rawModel = document.querySelector('[data-testid="model-selector-trigger"]')?.textContent?.trim().slice(0, 160) || null;
+  const rawModel = document.querySelector('[data-testid="model-selector-trigger"], [data-testid*="model-selector"], [data-testid*="model-picker"], button[aria-label*="Model" i]')?.textContent?.trim().slice(0, 160) || null;
   const modelName = rawModel ? rawModel.replace(/\s*(?:New|Notice|Unavailable|Beta|Preview)\s*$/i, '').trim() || null : null;
   return { port, conversationId, viewState, contextKey: String(hash), modelName, productName: window.__APP_CONFIG__?.productName || null };
 }
@@ -1033,13 +1137,13 @@ export function selectionPayload(viewState, app = null) {
 }
 
 /** Never substitute another conversation when the renderer has an explicit selection. */
-export function rendererPayload(snapshot, instance, context, _legacyLimits = null) {
+export function rendererPayload(snapshot, instance, context) {
   const app = appName(instance.backend.app);
   const scoped = { ...snapshot, conversation: instance.conversation, backend: instance.backend,
     quota: instance.quota || (snapshot.backend?.id === instance.backend.id ? snapshot.quota : undefined) };
   const matches = context.viewState === 'conversation' && instance.conversation && instance.conversation.id === context.conversationId;
   const payload = matches
-    ? toPayload(scoped, null, app, context.modelName)
+    ? toPayload(scoped, app, context.modelName)
     : selectionPayload(context.viewState, app);
   if (!payload.show) Object.assign(payload, selectionPayload('conversation', app));
   if (!matches || payload.card.percent === null) decorateQuota(payload, scoped, context.modelName || instance.conversation?.modelName);
@@ -1058,7 +1162,7 @@ export function appFromProductName(name) {
   if (value.includes('antigravity ide')) {
     return 'ide';
   }
-  if (value.includes('visual studio code') || value === 'code') {
+  if (value.includes('visual studio code') || value === 'code' || value.startsWith('code ')) {
     return 'vscode';
   }
   if (value.includes('antigravity')) {
@@ -1069,11 +1173,11 @@ export function appFromProductName(name) {
 
 export function conversationIdFromUrl(url) {
   const value = String(url ?? '');
-  const direct = /\/c\/([0-9a-f-]{8,})/i.exec(value);
+  const direct = /(?:^|\/)(?:c|chat|conversation|t|thread)\/([0-9a-f-]{8,})(?:[/?#]|$)/i.exec(value);
   if (direct) {
     return direct[1];
   }
-  const query = /[?&]conversationId=([0-9a-f-]{8,})/i.exec(value);
+  const query = /[?&](?:conversationId|cascadeId)=([0-9a-f-]{8,})/i.exec(value);
   return query ? query[1] : null;
 }
 
@@ -1146,6 +1250,9 @@ export class BadgeInjector {
     this.pumping = false;
     this.disposed = false;
     this.describeAttempted = false;
+    this.probeLogged = false;
+    this.reachablePorts = 0;
+    this.probedPages = 0;
     this.onUpdateSetting = options.onUpdateSetting ?? (() => {});
     this.onObserved = options.onObserved ?? (() => {});
     this.onRefresh = options.onRefresh ?? (() => {});
@@ -1165,6 +1272,20 @@ export class BadgeInjector {
     if (this.disposed) return;
     this.connectAt = 0;
     void this.pump();
+  }
+
+  getStatus() {
+    const state = this.renderers.size > 0
+      ? 'attached'
+      : this.reachablePorts > 0
+        ? 'no-composer'
+        : 'no-devtools';
+    return {
+      state,
+      attached: this.renderers.size,
+      reachablePorts: this.reachablePorts,
+      probedPages: this.probedPages,
+    };
   }
 
   /** Feed the newest snapshot; every attached renderer gets its own slice. */
@@ -1242,28 +1363,32 @@ export class BadgeInjector {
     }
     this.connecting = true;
     try {
-      const endpoints = devtoolsEndpoints()
-        .map((entry) => ({ port: readDevtoolsPort(entry.file), app: entry.app }))
-        .filter((entry) => entry.port);
-      for (const port of this.explicitPorts) {
-        if (!endpoints.some((entry) => entry.port === port)) {
-          endpoints.push({ port, app: null });
+      const endpoints = resolveCandidateEndpoints(this.explicitPorts);
+
+      let reachablePorts = 0;
+      let probedPages = 0;
+      for (const endpoint of endpoints) {
+        const result = await this.attachPort(endpoint.port, endpoint.app);
+        if (result.reachable) {
+          reachablePorts += 1;
+          probedPages += result.probed;
         }
       }
+      this.reachablePorts = reachablePorts;
+      this.probedPages = probedPages;
 
-      if (endpoints.length === 0) {
+      if (reachablePorts === 0) {
         if (!this.describeAttempted) {
           this.describeAttempted = true;
           this.logger(
             'Badge: no DevTools endpoint found; launch a host with --remote-debugging-port to enable its badge',
           );
         }
-        this.connectAt = Date.now() + 4_000;
-        return;
-      }
-
-      for (const endpoint of endpoints) {
-        await this.attachPort(endpoint.port, endpoint.app);
+      } else if (this.renderers.size === 0 && probedPages > 0 && !this.probeLogged) {
+        this.probeLogged = true;
+        this.logger(`Badge: inspected ${probedPages} DevTools target(s), but no composer UI matched`);
+      } else if (this.renderers.size > 0) {
+        this.probeLogged = false;
       }
       this.connectAt = Date.now() + 4_000;
     } finally {
@@ -1272,8 +1397,13 @@ export class BadgeInjector {
   }
 
   async attachPort(port, appHint) {
-    const targets = await this.listTargets(port);
+    const response = await this.listTargets(port);
+    if (!response.reachable) {
+      return { reachable: false, probed: 0 };
+    }
+    const targets = response.targets;
     const alive = new Set();
+    let probed = 0;
 
     for (const target of targets) {
       if (!target.webSocketDebuggerUrl) {
@@ -1282,12 +1412,14 @@ export class BadgeInjector {
       const key = `${port}:${target.id}`;
       alive.add(key);
       if (this.renderers.has(key)) {
+        probed += 1;
         continue;
       }
 
       const connection = new CdpConnection(target.webSocketDebuggerUrl);
       try {
         await connection.ready;
+        probed += 1;
         if ((await connection.evaluate(PROBE)) !== true) {
           connection.close();
           continue;
@@ -1333,6 +1465,7 @@ export class BadgeInjector {
         this.drop(key);
       }
     }
+    return { reachable: true, probed };
   }
 
   async refreshContext(renderer) {
@@ -1356,7 +1489,7 @@ export class BadgeInjector {
     if (Number.isInteger(port) && port >= 1 && port <= 65535) {
       renderer.backendPort = port;
     }
-    const owner = appFromProductName(context.productName);
+    const owner = appFromProductName(context.productName || renderer.target?.title);
     if (owner && !renderer.appHint) {
       // The DevTools port file already names the product; the page is only a
       // fallback for an explicitly supplied port.
@@ -1421,14 +1554,14 @@ export class BadgeInjector {
 
   async listTargets(port) {
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2000) });
+      const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(800) });
       if (!response.ok) {
-        return [];
+        return { reachable: false, targets: [] };
       }
       const targets = await response.json();
-      return Array.isArray(targets) ? targets : [];
+      return { reachable: true, targets: Array.isArray(targets) ? targets : [] };
     } catch {
-      return [];
+      return { reachable: false, targets: [] };
     }
   }
 
@@ -1455,7 +1588,7 @@ export class BadgeInjector {
  * Both densities are sent, so a click never needs another round trip, and the
  * card is pre-formatted so the injected script holds no formatting rules.
  */
-export function toPayload(snapshot, _legacyLimits = null, app = null, modelNameOverride = null) {
+export function toPayload(snapshot, app = null, modelNameOverride = null) {
   const conversation = snapshot && snapshot.conversation;
   const usage = conversation && conversation.usage;
   if (!usage || usage.percent === null || usage.percent === undefined) {
@@ -1553,75 +1686,6 @@ function decorateQuota(payload, snapshot, modelName) {
 
 function formatPercent(value) {
   return (Math.round(value * 10) / 10).toFixed(1).replace(/\.0$/, '') + '%';
-}
-
-/**
- * Parse the Settings panel's limit rows.
- *
- * Rows arrive as plain text: the label, the app's own sentence, then the
- * percentage. When several rows describe the same window the lowest remaining
- * wins, because that is the limit that constrains the work.
- */
-export function parseQuotaRows(rows) {
-  if (!Array.isArray(rows)) {
-    return null;
-  }
-  let session = null;
-  let weekly = null;
-
-  for (const text of rows) {
-    if (typeof text !== 'string') {
-      continue;
-    }
-    const isWeekly = /weekly(?:\s+(?:usage|quota|limit))?|7[- ]day\s+(?:limit|quota)/i.test(text);
-    const isSession = /\b(?:five|5)[- ]hour\b(?:\s+(?:usage|quota|limit))?/i.test(text);
-    const kind = isWeekly && !isSession ? 'weekly' : isSession && !isWeekly ? 'session' : null;
-    if (!kind) {
-      continue;
-    }
-    const matches = [...text.matchAll(/(-?\d+(?:\.\d+)?)\s*%/g)];
-    if (matches.length !== 1) {
-      continue;
-    }
-    const value = Number(matches[0][1]);
-    if (!Number.isFinite(value) || value < 0 || value > 100) continue;
-    const used = /\d+(?:\.\d+)?\s*%\s*(?:used|consumed)|(?:used|consumed)\s*:?\s*\d+(?:\.\d+)?\s*%/i.test(text);
-    const remaining = /remaining|left|available/i.test(text);
-    if (!used && !remaining) continue;
-    const entry = { percent: used ? 100 - value : value, resetText: shortReset(text) };
-    if (kind === 'weekly') {
-      weekly = lowest(weekly, entry);
-    } else {
-      session = lowest(session, entry);
-    }
-  }
-
-  return session || weekly ? { session, weekly } : null;
-}
-
-function lowest(current, candidate) {
-  return !current || candidate.percent < current.percent ? candidate : current;
-}
-
-function shortReset(text) {
-  const phrase = text.match(/(?:refresh(?:es)?|reset(?:s)?|renew(?:s)?)\s+in\s+(.+)/i);
-  if (!phrase) {
-    return null;
-  }
-  const parts = [];
-  const days = phrase[1].match(/(\d+)\s*d(?:ays?)?\b/i);
-  const hours = phrase[1].match(/(\d+)\s*h(?:ours?|rs?)?\b/i);
-  const minutes = phrase[1].match(/(\d+)\s*m(?:inutes?|ins?)?\b/i);
-  if (days) {
-    parts.push(`${days[1]}d`);
-  }
-  if (hours) {
-    parts.push(`${hours[1]}h`);
-  }
-  if (minutes) {
-    parts.push(`${minutes[1]}m`);
-  }
-  return parts.length ? parts.join(' ') : null;
 }
 
 function countdown(iso) {

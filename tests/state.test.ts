@@ -101,20 +101,6 @@ test('a missing or corrupt file yields empty state instead of throwing', async (
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('a tampered weekly reading is discarded, not displayed', async () => {
-  const { sanitiseLimits } = await loadStateModule();
-
-  assert.deepEqual(sanitiseLimits({ weekly: { percent: 80, resetText: '6d 15h' }, readAt: 1 }), {
-    weekly: { percent: 80, resetText: '6d 15h' },
-    readAt: 1,
-  });
-  assert.equal(sanitiseLimits({ weekly: { percent: 80, resetText: '6d' } }), null, 'no read time');
-  assert.equal(sanitiseLimits({ weekly: { percent: -4 }, readAt: 1 }), null);
-  assert.equal(sanitiseLimits({ weekly: { percent: 101 }, readAt: 1 }), null);
-  assert.equal(sanitiseLimits({ readAt: 1 }), null);
-  assert.equal(sanitiseLimits(null), null);
-});
-
 test('buckets with junk numbers are rebuilt rather than trusted', async () => {
   const { sanitiseBuckets } = await loadStateModule();
 

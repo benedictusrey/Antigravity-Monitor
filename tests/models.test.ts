@@ -28,11 +28,14 @@ test('the catalogue is keyed by backend placeholder id', () => {
   assert.equal(catalog.get('MODEL_PLACEHOLDER_M318')?.source, 'live');
 });
 
-test('a catalogue entry without a display name still resolves to a usable spec', () => {
+test('a catalogue entry without a display name humanizes descriptive slugs and keeps opaque keys honest', () => {
   const catalog = buildCatalog(CATALOG);
-  const spec = catalog.get('MODEL_PLACEHOLDER_M322');
-  assert.equal(spec?.name, 'M322');
-  assert.equal(spec?.contextLimit, 1_048_576);
+  const tiered = catalog.get('MODEL_PLACEHOLDER_M322');
+  assert.equal(tiered?.name, 'Gemini 3.8 Flash');
+  assert.equal(tiered?.contextLimit, 1_048_576);
+
+  const opaque = buildCatalog({ response: { models: { a: { model: 'MODEL_PLACEHOLDER_M997', maxTokens: 32_768 } } } });
+  assert.equal(opaque.get('MODEL_PLACEHOLDER_M997')?.name, 'M997');
 });
 
 test('a duplicate placeholder keeps the more complete record', () => {
@@ -161,4 +164,51 @@ test('matchModelByName and mergePickerIntoCatalog automatically recognise UI and
   assert.equal(matchModelByName('Gemini 4 Hydrogen High', catalog, picker)?.id, 'MODEL_PLACEHOLDER_M525');
   assert.equal(resolveModel('MODEL_PLACEHOLDER_M998', catalog)?.name, 'Future Model Alpha');
   assert.ok(priceFor('MODEL_PLACEHOLDER_M419', Date.parse('2026-11-17T00:00:00Z')) !== null, 'Gemini 4 Argon tiers have pricing');
+});
+
+test('future model discovery handles slug names, top-level payloads, Neon fallbacks, and name-based pricing', () => {
+  const catalog = buildCatalog({
+    models: {
+      'gemini-4-hydrogen-sonar': {
+        model: 'MODEL_PLACEHOLDER_M578',
+        maxContextTokens: 1_048_576,
+        maxOutputTokens: 65_536,
+        supportsThinking: true,
+      },
+    },
+  });
+  assert.equal(catalog.get('MODEL_PLACEHOLDER_M578')?.name, 'Gemini 4 Hydrogen Sonar');
+  assert.equal(catalog.get('MODEL_PLACEHOLDER_M578')?.contextLimit, 1_048_576);
+
+  const neon = resolveModel('MODEL_PLACEHOLDER_M532', catalog);
+  assert.equal(neon?.name, 'Gemini 4 Neon (High)');
+  assert.equal(neon?.source, 'fallback');
+  assert.equal(resolveModel('MODEL_PLACEHOLDER_M537', catalog)?.name, 'Orchestrator (Neon)');
+
+  const { picker } = parseUserStatus(
+    {
+      userStatus: {
+        cascadeModelConfigData: {
+          clientModelConfigs: [
+            {
+              label: 'Gemini 4.5 Future',
+              modelOrAlias: { alias: 'MODEL_PLACEHOLDER_M990' },
+              maxContextTokens: 2_000_000,
+              maxOutputTokens: 131_072,
+              quotaInfo: { remainingFraction: 0.75 },
+            },
+          ],
+        },
+      },
+    },
+    catalog,
+  );
+  assert.equal(picker[0].modelId, 'MODEL_PLACEHOLDER_M990');
+  assert.equal(picker[0].contextLimit, 2_000_000);
+  assert.equal(picker[0].maxOutput, 131_072);
+
+  assert.ok(
+    priceFor('MODEL_PLACEHOLDER_M999', Date.parse('2026-11-19T00:00:00Z'), 'Gemini 4 Argon (XHigh)') !== null,
+    'name-based pricing resolves unknown placeholder IDs',
+  );
 });

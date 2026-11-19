@@ -101,6 +101,12 @@ const FALLBACK_MODELS: Record<string, Omit<ModelSpec, 'id' | 'source'>> = {
   MODEL_PLACEHOLDER_M528: { name: 'Gemini 4 Hydrogen (XHigh)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
   MODEL_PLACEHOLDER_M530: { name: 'Gemini 4 Hydrogen (High)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
   MODEL_PLACEHOLDER_M531: { name: 'Gemini 4 Hydrogen (XHigh)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M532: { name: 'Gemini 4 Neon (High)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M533: { name: 'Gemini 4 Neon (Medium)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M534: { name: 'Gemini 4 Neon (Low)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M535: { name: 'Gemini 4 Neon (XHigh)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M537: { name: 'Orchestrator (Neon)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
+  MODEL_PLACEHOLDER_M578: { name: 'Gemini 4 Hydrogen Sonar', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
   MODEL_PLACEHOLDER_M668: { name: 'Orchestrator (Argon)', contextLimit: 1_048_576, maxOutput: 65_536, thinking: true },
   MODEL_PLACEHOLDER_M669: { name: 'Gemini 4 Hydrogen (Orchestrator)', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
   MODEL_PLACEHOLDER_M670: { name: 'Gemini 4 Carbon', contextLimit: 1_048_576, maxOutput: 262_144, thinking: true },
@@ -142,6 +148,30 @@ export function shortModelId(id: string): string {
   return id.replace(/^MODEL_PLACEHOLDER_/, '');
 }
 
+const UPPERCASE_WORDS: Record<string, string> = {
+  gpt: 'GPT',
+  oss: 'OSS',
+  ai: 'AI',
+  xhigh: 'XHigh',
+};
+
+function humanizeSlug(slug: string): string | null {
+  if (!slug || slug.length < 4 || !/[-_]/.test(slug)) return null;
+  const tokens = slug
+    .split(/[-_]+/)
+    .filter((part) => part.length > 0 && !/^(?:tiered|disabled)$/i.test(part));
+  if (tokens.length < 2) return null;
+  return tokens
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (UPPERCASE_WORDS[lower]) return UPPERCASE_WORDS[lower];
+      if (/^\d+(?:\.\d+)?$/.test(part)) return part;
+      if (/^\d+b$/i.test(part)) return part.toUpperCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+}
+
 /**
  * Build a lookup keyed by backend placeholder id from a `GetAvailableModels`
  * response. Entries that carry neither a display name nor a usable capacity are
@@ -149,12 +179,12 @@ export function shortModelId(id: string): string {
  */
 export function buildCatalog(payload: unknown): Map<string, ModelSpec> {
   const catalog = new Map<string, ModelSpec>();
-  const models = asRecord(dig(payload, 'response', 'models'));
+  const models = asRecord(dig(payload, 'response', 'models') ?? dig(payload, 'models'));
   if (!models) {
     return catalog;
   }
 
-  for (const entry of Object.values(models)) {
+  for (const [catalogKey, entry] of Object.entries(models)) {
     const record = asRecord(entry);
     if (!record) {
       continue;
@@ -163,9 +193,10 @@ export function buildCatalog(payload: unknown): Map<string, ModelSpec> {
     if (!id) {
       continue;
     }
-    const contextLimit = safeInt(record.maxTokens);
+    const contextLimit = safeInt(record.maxTokens) ?? safeInt(record.maxContextTokens) ?? safeInt(record.contextLimit);
     const maxOutput = safeInt(record.maxOutputTokens);
     const displayName = firstString(record.displayName);
+    const slugName = displayName ? null : humanizeSlug(catalogKey);
     const thinking = typeof record.supportsThinking === 'boolean' ? record.supportsThinking : null;
     const tag = firstString(record.tagTitle);
     const provider = firstString(record.modelProvider);
@@ -176,7 +207,7 @@ export function buildCatalog(payload: unknown): Map<string, ModelSpec> {
     const existing = catalog.get(id);
     const next: ModelSpec = {
       id,
-      name: displayName ?? existing?.name ?? shortModelId(id),
+      name: displayName ?? existing?.name ?? slugName ?? shortModelId(id),
       contextLimit: contextLimit ?? existing?.contextLimit ?? null,
       maxOutput: maxOutput ?? existing?.maxOutput ?? null,
       thinking: thinking ?? existing?.thinking ?? null,
@@ -185,7 +216,9 @@ export function buildCatalog(payload: unknown): Map<string, ModelSpec> {
       provider: provider ?? existing?.provider ?? null,
       isInternal: existing?.isInternal ?? isInternal,
     };
-    if (!existing || scoreModel(next) >= scoreModel(existing)) {
+    const nextExplicit = Boolean(displayName);
+    const prevExplicit = Boolean(existing && existing.name !== shortModelId(existing.id) && existing.name !== slugName);
+    if (!existing || scoreModel(next, nextExplicit) >= scoreModel(existing, prevExplicit)) {
       catalog.set(id, next);
     }
   }
@@ -193,10 +226,12 @@ export function buildCatalog(payload: unknown): Map<string, ModelSpec> {
   return catalog;
 }
 
-function scoreModel(spec: ModelSpec): number {
+function scoreModel(spec: ModelSpec, explicitName = false): number {
   let score = 0;
-  if (spec.name !== shortModelId(spec.id)) {
-    score += 4;
+  if (explicitName) {
+    score += 8;
+  } else if (spec.name !== shortModelId(spec.id)) {
+    score += 2;
   }
   if (spec.contextLimit !== null) {
     score += 2;
@@ -288,7 +323,7 @@ export function parseUserStatus(payload: unknown, catalog: Map<string, ModelSpec
     if (!record) {
       continue;
     }
-    const modelId = firstString(dig(record, 'modelOrAlias', 'model'));
+    const modelId = firstString(dig(record, 'modelOrAlias', 'model'), dig(record, 'modelOrAlias', 'alias'), record.modelId);
     const label = firstString(record.label, record.modelId) ?? (modelId ? shortModelId(modelId) : null);
     if (!label) {
       continue;
@@ -301,8 +336,8 @@ export function parseUserStatus(payload: unknown, catalog: Map<string, ModelSpec
       label,
       quotaPercent: fraction === null ? null : clampPercent(fraction * 100),
       resetsAt: asString(dig(record, 'quotaInfo', 'resetTime')),
-      contextLimit: spec?.contextLimit ?? null,
-      maxOutput: spec?.maxOutput ?? null,
+      contextLimit: spec?.contextLimit ?? safeInt(record.maxContextTokens) ?? safeInt(record.maxTokens) ?? null,
+      maxOutput: spec?.maxOutput ?? safeInt(record.maxOutputTokens) ?? null,
       tag,
     });
   }
@@ -347,12 +382,20 @@ export function quotaFor(modelId: string | null, picker: PickerModel[]): PickerM
   return picker.find((entry) => entry.modelId === modelId) ?? null;
 }
 
+function priceFamilyForName(modelName: string | null | undefined): string | null {
+  const normalized = normalizeModelKey(modelName);
+  if (!normalized) return null;
+  if (normalized.includes('gemini38flash')) return 'gemini-3.8-flash';
+  if (normalized.includes('argon')) return 'gemini-4-argon';
+  return null;
+}
+
 /** Resolve the applicable price for a model at a given instant. */
-export function priceFor(modelId: string | null, atMs = Date.now()): Price | null {
-  if (!modelId) {
+export function priceFor(modelId: string | null, atMs = Date.now(), modelName?: string | null): Price | null {
+  if (!modelId && !modelName) {
     return null;
   }
-  const family = PRICE_FAMILY_BY_MODEL[modelId];
+  const family = (modelId ? PRICE_FAMILY_BY_MODEL[modelId] : null) ?? priceFamilyForName(modelName);
   if (!family) {
     return null;
   }
@@ -375,8 +418,13 @@ export function priceFor(modelId: string | null, atMs = Date.now()): Price | nul
  * model has no published rate. Cache creation is intentionally excluded: the
  * backend does not report a cache lifetime, so its fee cannot be computed.
  */
-export function estimateCost(tokens: TokenCounts, modelId: string | null, atMs = Date.now()): number | null {
-  const price = priceFor(modelId, atMs);
+export function estimateCost(
+  tokens: TokenCounts,
+  modelId: string | null,
+  atMs = Date.now(),
+  modelName?: string | null,
+): number | null {
+  const price = priceFor(modelId, atMs, modelName);
   if (!price) {
     return null;
   }

@@ -229,3 +229,18 @@ test('parseWindowsOutput accepts the owner produced by the discovery script', ()
   assert.equal(processes[1].owner, 'vscode');
   assert.equal(processes[2].owner, undefined, 'unrecognised owners are dropped, not guessed');
 });
+
+test('discovery accepts renamed server binaries with csrf_token and https_server_port', () => {
+  const { targets } = toBackendTargets([
+    {
+      pid: 9012,
+      name: 'cortex_server.exe',
+      cmd: 'cortex_server.exe --csrf_token=next-token --https_server_port=51234',
+      ports: [51234],
+      owner: 'app',
+    },
+  ]);
+  assert.equal(targets.length, 2);
+  assert.equal(targets[0].id, 'https:51234');
+  assert.equal(targets[0].owner, 'app');
+});

@@ -1,12 +1,12 @@
-# v1.1.0 interface and visual design
+# v1.2.0 interface and visual design
 
 The main question is: does this reading belong to the conversation on screen?
 
 Objects: a renderer, its backend port, visible conversation identity, parent/subagent hierarchy, context used/remaining, output speed (`tok/s`), token composition (fresh input, cache read, cache write, output), measurement source, model quota pool, weekly account quota, and reading time. New thread, switching, unknown selection, disconnected (`Standby`), and measured conversation are separate states. Missing readings never mean zero usage or full quota.
 
-Chosen direction: `data-terminal` architectural layout with crisp `1px` hairline divisions (`--border`, `--rule`) and a single `2px` `--accent` selection line, eliminating padded card voids while keeping host `--vscode-*` overrides intact for light, dark, and high-contrast themes. Wide viewports pair the `36px` context figure, threshold ruler, and composition bar flush against side-by-side `5-hour` / `Weekly` quota pools, followed by a 4-cell KPI strip (`Output speed`, `Cache hit ratio`, `Session API equiv.`, `Observed today`) and a balanced `Session ledger` / `Daily usage` split.
+Chosen direction: `data-terminal` architectural layout with crisp `1px` hairline divisions (`--border`, `--rule`) and a sliding `2px` `--accent` `#tab-indicator`, eliminating padded card voids while keeping host `--vscode-*` overrides intact for light, dark, and high-contrast themes. Wide viewports pair the `36px` context figure, `scaleX`-composited threshold ruler (with quarter, `warn`, and `crit` ticks), and composition bar flush against side-by-side `5-hour` / `Weekly` `scaleX` quota gauges, followed by a 4-cell KPI strip (`Output speed`, `Cache hit ratio`, `Session API equiv.`, `Observed today`), a balanced `Session ledger` / `Daily usage` split (with interactive hover/focus bar readout), tactile `.switch` toggles in Settings, and a topbar `Copy` summary button.
 
-Tokens: dark ground `#111216`, surface `#16181e`, alt `#1b1e26`, border `#252833`, text `#f2f4f8`, muted `#8b91a0`, signal blue `#4a8ad6`; light ground `#f3f5f8`, surface `#ffffff`, alt `#f0f2f6`, border `#d8dde6`, text `#111318`, muted `#505766`, signal blue `#0957c3`. Tabular figures everywhere; no remote fonts, no resting shadows, no gradients.
+Tokens: dark ground `#0e1014`, surface `#14171f`, alt `#1a1e28`, border `#232735`, rule `#1c202c`, text `#f2f4f8`, muted `#8f96a8`, signal blue `#4f94e8`; light ground `#f2f4f8`, surface `#ffffff`, alt `#eef1f6`, border `#d5dbe6`, rule `#e4e8f0`, text `#111318`, muted `#505766`, signal blue `#0b5ed7`. Tabular figures everywhere; no remote fonts, no resting shadows, no gradients. Dial: ENERGY 2 / RHYTHM 2 / MOTION 2.
 
 The visible conversation state becomes the card's primary reading. This differs from the old percentage-first design: a new thread is named explicitly rather than represented by an old percentage or invented zero.
 

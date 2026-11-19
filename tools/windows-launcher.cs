@@ -8,9 +8,9 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("Antigravity Monitor")]
 [assembly: AssemblyCompany("Antigravity Monitor contributors")]
 [assembly: AssemblyDescription("Antigravity Monitor launcher")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
-[assembly: AssemblyInformationalVersion("1.1.0")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyInformationalVersion("1.2.0")]
 
 internal static class Launcher
 {

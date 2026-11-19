@@ -31,7 +31,14 @@
       <div class="topbar-actions">
         <button id="btn-follow" class="chip chip--plain chip--action" type="button" hidden title="Stop pinning and follow the active thread">Pinned &middot; Auto-follow</button>
         <span id="status-chip" class="chip chip--neutral" aria-live="polite">Starting</span>
-        <button id="btn-refresh" class="btn btn--ghost" type="button">Refresh</button>
+        <button id="btn-copy" class="btn btn--ghost" type="button" hidden title="Copy current session summary">Copy</button>
+        <button id="btn-refresh" class="btn btn--ghost" type="button">
+          <svg class="btn__icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13.5 8a5.5 5.5 0 1 1-1.45-3.73" />
+            <path d="M13.5 2.5v2.75H10.75" />
+          </svg>
+          <span class="btn__label">Refresh</span>
+        </button>
       </div>
     </header>
 
@@ -40,6 +47,7 @@
       <button class="tab" role="tab" data-tab="sessions" id="tab-sessions" aria-selected="false" aria-controls="pane-sessions">Threads</button>
       <button class="tab" role="tab" data-tab="models" id="tab-models" aria-selected="false" aria-controls="pane-models">Models</button>
       <button class="tab" role="tab" data-tab="settings" id="tab-settings" aria-selected="false" aria-controls="pane-settings">Settings</button>
+      <span class="tabs__indicator" id="tab-indicator" aria-hidden="true"></span>
     </nav>
 
     <main class="content">
@@ -51,6 +59,7 @@
 
     <footer class="footer">
       <span id="footer-note">Readings come from the local Antigravity language server. Nothing leaves this machine.</span>
+      <span class="footer__keys">1&ndash;4 tabs &middot; R refresh</span>
     </footer>
   </div>
 

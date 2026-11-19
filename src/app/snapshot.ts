@@ -144,6 +144,7 @@ export interface InstanceView {
 
 export interface Snapshot {
   quota?: QuotaState;
+  activeQuotaGroupId?: string | null;
   weeklyQuota?: { percent: number; resetText: string | null; observedAt: number } | null;
   schemaVersion: number;
   generatedAt: number;
@@ -170,6 +171,7 @@ export interface Snapshot {
 export function emptySnapshot(prefs: SnapshotPrefs): Snapshot {
   return {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+    activeQuotaGroupId: null,
     generatedAt: Date.now(),
     status: 'starting',
     backend: null,

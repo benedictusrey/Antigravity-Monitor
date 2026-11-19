@@ -7,6 +7,7 @@ test('simple notifications are accepted', () => {
   assert.deepEqual(parseMessage({ type: 'ready' }), { type: 'ready' });
   assert.deepEqual(parseMessage({ type: 'refresh' }), { type: 'refresh' });
   assert.deepEqual(parseMessage({ type: 'diagnostics' }), { type: 'diagnostics' });
+  assert.deepEqual(parseMessage({ type: 'relaunchApp' }), { type: 'relaunchApp' });
 });
 
 test('selection messages carry a bounded identifier', () => {

@@ -12,8 +12,9 @@
 
   const TABS = ['overview', 'sessions', 'models', 'settings'];
   const HISTORY_LIMIT = 60;
+  const reducedMotion = Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-  /** @type {{snapshot: any, tab: string, threadFilter: string, threadQuery: string, history: Map<string, number[]>, rendered: Map<string,string>, showDiagnostics: boolean, refreshTimer: any}} */
+  /** @type {{snapshot: any, tab: string, threadFilter: string, threadQuery: string, history: Map<string, number[]>, rendered: Map<string,string>, prevRatios: Map<string,number>, prevMetrics: Map<string,string>, showDiagnostics: boolean, refreshTimer: any, copyTimer: any}} */
   const state = {
     snapshot: null,
     tab: 'overview',
@@ -21,8 +22,12 @@
     threadQuery: '',
     history: new Map(),
     rendered: new Map(),
+    prevRatios: new Map(),
+    prevMetrics: new Map(),
     showDiagnostics: false,
+    confirmRelaunch: false,
     refreshTimer: null,
+    copyTimer: null,
   };
 
   const persisted = vscode.getState();
@@ -151,6 +156,31 @@
     return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
+  function applyFillRatio(fill, ratioKey, pctValue) {
+    const ratio = Math.max(0, Math.min(1, (typeof pctValue === 'number' && isFinite(pctValue) ? pctValue : 0) / 100));
+    const prev = state.prevRatios.has(ratioKey) ? state.prevRatios.get(ratioKey) : ratio;
+    state.prevRatios.set(ratioKey, ratio);
+    if (reducedMotion || Math.abs(prev - ratio) < 0.0005) {
+      fill.style.transform = 'scaleX(' + ratio.toFixed(4) + ')';
+      return;
+    }
+    fill.style.transform = 'scaleX(' + prev.toFixed(4) + ')';
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (fill.isConnected) fill.style.transform = 'scaleX(' + ratio.toFixed(4) + ')';
+      });
+    });
+  }
+
+  function flashIfChanged(node, metricKey, valueText) {
+    const prev = state.prevMetrics.get(metricKey);
+    state.prevMetrics.set(metricKey, valueText);
+    if (!reducedMotion && prev !== undefined && prev !== valueText) {
+      node.classList.add('metric-flash');
+      node.addEventListener('animationend', function () { node.classList.remove('metric-flash'); }, { once: true });
+    }
+  }
+
   // ------------------------------------------------------------------ quota
 
   function quotaView(snapshot) {
@@ -159,47 +189,6 @@
     const age = value.observedAt === null ? Infinity : Date.now() - value.observedAt;
     const status = age < 0 || age > 30000 ? 'unavailable' : value.error || value.status === 'cached' || age > 12000 ? 'cached' : 'live';
     return Object.assign({}, value, { status });
-  }
-
-  function isArgonGroup(group) {
-    return /argon/i.test(group.label || '') || (group.buckets || []).some(function (b) { return /argon/i.test(b.id || ''); });
-  }
-
-  function resolveQuotaGroupLocal(groups, modelName, hint) {
-    if (!Array.isArray(groups) || !groups.length) return null;
-    if (hint && hint.resetsAt) {
-      const hintMs = Date.parse(hint.resetsAt);
-      if (isFinite(hintMs)) {
-        const byReset = groups.filter(function (g) {
-          return (g.buckets || []).some(function (b) { return b.resetsAt && Math.abs(Date.parse(b.resetsAt) - hintMs) <= 120000; });
-        });
-        if (byReset.length === 1) return byReset[0];
-      }
-    }
-    if (!modelName) return null;
-    if (/argon/i.test(modelName)) {
-      const argon = groups.filter(isArgonGroup);
-      return argon.length === 1 ? argon[0] : null;
-    }
-    const base = String(modelName)
-      .replace(/\s*\((?:high|medium|low|xhigh|thinking|orchestrator|argon)\)\s*/gi, ' ')
-      .replace(/\s+(?:high|medium|low|xhigh|thinking|orchestrator)\s*$/i, '')
-      .trim().toLowerCase();
-    if (base.length >= 4) {
-      const described = groups.filter(function (g) {
-        return !isArgonGroup(g) && String(g.description || '').toLowerCase().includes(base);
-      });
-      if (described.length === 1) return described[0];
-    }
-    const family = /gemini/i.test(modelName) ? 'gemini' : /claude|gpt|openai|opus|sonnet/i.test(modelName) ? 'third-party' : null;
-    if (!family) return null;
-    const matches = groups.filter(function (g) {
-      if (family === 'gemini') {
-        return !isArgonGroup(g) && (/gemini/i.test(g.label || '') || (g.buckets || []).some(function (b) { return /^gemini-/.test(b.id || ''); }));
-      }
-      return /claude|gpt/i.test(g.label || '') || (g.buckets || []).some(function (b) { return /^3p-/.test(b.id || ''); });
-    });
-    return matches.length === 1 ? matches[0] : null;
   }
 
   function bucketAvailable(bucket, quotaStatus) {
@@ -217,7 +206,11 @@
   const subtitleNode = document.getElementById('subtitle');
   const statusChip = document.getElementById('status-chip');
   const followButton = document.getElementById('btn-follow');
+  const copyButton = document.getElementById('btn-copy');
   const refreshButton = document.getElementById('btn-refresh');
+  const refreshLabel = refreshButton ? refreshButton.querySelector('.btn__label') : null;
+  const tabsBar = document.querySelector('.tabs');
+  const tabIndicator = document.getElementById('tab-indicator');
   const threadsTab = document.getElementById('tab-sessions');
   const footerNote = document.getElementById('footer-note');
   const panes = {
@@ -236,14 +229,14 @@
     if (active) {
       refreshButton.disabled = true;
       refreshButton.setAttribute('aria-busy', 'true');
-      refreshButton.textContent = 'Refreshing…';
+      if (refreshLabel) refreshLabel.textContent = 'Refreshing…';
       state.refreshTimer = setTimeout(function () {
         setRefreshing(false);
       }, 2500);
     } else {
       refreshButton.disabled = false;
       refreshButton.removeAttribute('aria-busy');
-      refreshButton.textContent = 'Refresh';
+      if (refreshLabel) refreshLabel.textContent = 'Refresh';
     }
   }
 
@@ -253,6 +246,55 @@
   }
 
   refreshButton.addEventListener('click', triggerRefresh);
+
+  function copySessionSummary() {
+    const snap = state.snapshot;
+    const conv = snap && snap.conversation;
+    const usage = conv && conv.usage;
+    if (!conv || !usage) return;
+    const parts = [
+      snap.backend ? backendLabel(snap.backend.app) : null,
+      conv.title,
+      usage.percent !== null ? fmtPercent(usage.percent) + ' (' + fmtTokens(usage.used) + (usage.capacity ? '/' + fmtTokens(usage.capacity) : '') + ')' : fmtTokens(usage.used),
+      usage.tokPerSec > 0 ? fmtRate(usage.tokPerSec) : null,
+      conv.modelName || conv.modelId,
+    ];
+    const text = parts.filter(Boolean).join(' · ');
+
+    function done(ok) {
+      if (!copyButton) return;
+      copyButton.textContent = ok ? 'Copied' : 'Copy failed';
+      if (state.copyTimer) clearTimeout(state.copyTimer);
+      state.copyTimer = setTimeout(function () {
+        state.copyTimer = null;
+        if (copyButton) copyButton.textContent = 'Copy';
+      }, 1600);
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopyText(text)); });
+      return;
+    }
+    done(fallbackCopyText(text));
+  }
+
+  function fallbackCopyText(text) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    document.body.appendChild(area);
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    area.remove();
+    return ok;
+  }
+
+  if (copyButton) {
+    copyButton.addEventListener('click', copySessionSummary);
+  }
 
   document.addEventListener('keydown', function (event) {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -289,8 +331,30 @@
     });
   });
 
-  function selectTab(name) {
+  function updateTabIndicator(animate) {
+    if (!tabsBar || !tabIndicator) return;
+    const activeTab = tabsBar.querySelector('.tab[aria-selected="true"]');
+    if (!activeTab) return;
+    tabsBar.classList.add('tabs--js');
+    const left = activeTab.offsetLeft;
+    const width = activeTab.offsetWidth;
+    if (!animate || reducedMotion) {
+      tabIndicator.style.transition = 'none';
+      tabIndicator.style.transform = 'translateX(' + left + 'px) scaleX(' + (width / 100).toFixed(4) + ')';
+      void tabIndicator.offsetWidth;
+      tabIndicator.style.transition = '';
+    } else {
+      tabIndicator.style.transform = 'translateX(' + left + 'px) scaleX(' + (width / 100).toFixed(4) + ')';
+    }
+  }
+
+  window.addEventListener('resize', function () {
+    updateTabIndicator(false);
+  });
+
+  function selectTab(name, animate) {
     if (!TABS.includes(name)) return;
+    const changed = state.tab !== name;
     state.tab = name;
     vscode.setState({ tab: name });
 
@@ -302,7 +366,14 @@
 
     for (const key of TABS) {
       panes[key].hidden = key !== name;
+      panes[key].classList.remove('pane--entering');
     }
+    if (changed && !reducedMotion && animate !== false) {
+      const targetPane = panes[name];
+      targetPane.classList.add('pane--entering');
+      targetPane.addEventListener('animationend', function () { targetPane.classList.remove('pane--entering'); }, { once: true });
+    }
+    updateTabIndicator(animate !== false);
     renderActivePane();
   }
 
@@ -310,7 +381,7 @@
     switch (snapshot.status) {
       case 'ok':
         if (snapshot.conversation && snapshot.conversation.usage && snapshot.conversation.usage.source === 'estimated') {
-          return { label: 'Streaming', className: 'chip chip--ok' };
+          return { label: 'Streaming', className: 'chip chip--ok chip--streaming' };
         }
         return { label: 'Live', className: 'chip chip--ok' };
       case 'no-conversation':
@@ -337,6 +408,9 @@
     if (followButton) {
       followButton.hidden = !snapshot.pinnedConversationId;
     }
+    if (copyButton) {
+      copyButton.hidden = !(snapshot.conversation && snapshot.conversation.usage);
+    }
 
     const runningTotal = (snapshot.sessions || []).filter(function (s) { return s.status === 'running'; }).length;
     if (threadsTab) {
@@ -346,6 +420,7 @@
         threadsTab.appendChild(el('span', { className: 'tab__count', text: String(runningTotal), attrs: { title: runningTotal + ' running' } }));
       }
     }
+    updateTabIndicator(false);
 
     const noBackend = !snapshot.backends || snapshot.backends.length === 0;
     if (snapshot.status === 'ok' && snapshot.conversation) {
@@ -442,6 +517,7 @@
   function paneSignature(tab, snapshot) {
     if (tab === 'settings') {
       return [
+        snapshot.badge,
         snapshot.backends.map(function (b) { return [b.id, b.active, b.reachable, b.conversations, b.running]; }),
         (snapshot.instances || []).map(function (i) { return [i.backend.id, i.conversation && i.conversation.id, i.conversation && i.conversation.usage && i.conversation.usage.percent]; }),
       ];
@@ -460,12 +536,15 @@
     }
     return [
       snapshot.status,
+      snapshot.badge,
+      state.confirmRelaunch,
       quotaView(snapshot), Math.floor(Date.now() / 60000),
       snapshot.lastError,
       snapshot.stale,
       snapshot.pinnedConversationId,
       snapshot.composerModelName,
-      snapshot.conversation ? [snapshot.conversation.id, snapshot.conversation.stepCount, snapshot.conversation.compressed, snapshot.conversation.modelId, snapshot.conversation.selectedModelId] : null,
+      snapshot.activeQuotaGroupId,
+      snapshot.conversation ? [snapshot.conversation.id, snapshot.conversation.stepCount, snapshot.conversation.compressed, snapshot.conversation.modelId, snapshot.conversation.modelName, snapshot.conversation.selectedModelId, snapshot.conversation.selectedModelName] : null,
       snapshot.conversation && snapshot.conversation.usage ? [snapshot.conversation.usage.used, snapshot.conversation.usage.source, snapshot.conversation.usage.tokPerSec] : null,
       (snapshot.instances || []).map(function (i) { return [i.backend.id, i.status, i.viewState, i.composerModelName, i.conversation && i.conversation.id, i.conversation && i.conversation.stepCount, i.conversation && i.conversation.usage && i.conversation.usage.percent]; }),
       snapshot.account,
@@ -495,12 +574,81 @@
 
   // --------------------------------------------------------------- overview
 
+  function formatBadgeStatus(badge) {
+    if (!badge) return 'Editor host status bar';
+    if (badge.state === 'attached') return 'Attached (' + badge.attached + ' window' + (badge.attached === 1 ? '' : 's') + ')';
+    if (badge.state === 'no-composer') return 'DevTools found, composer UI not matched (' + badge.probedPages + ' target' + (badge.probedPages === 1 ? '' : 's') + ')';
+    if (badge.state === 'disabled') return 'Disabled (--no-badge)';
+    return 'Not attached (missing --remote-debugging-port=9222)';
+  }
+
   function renderOverview(pane, snapshot) {
     const conversation = snapshot.conversation;
     const hasBackends = (snapshot.backends || []).length > 0;
+    const hasDesktopApp = (snapshot.backends || []).some(function (b) { return b.app === 'app'; });
 
     if (snapshot.lastError && hasBackends) {
       pane.appendChild(el('div', { className: 'notice notice--error', text: snapshot.lastError }));
+    }
+    if (document.body.dataset.host === 'companion' && hasDesktopApp && snapshot.badge && snapshot.badge.state !== 'attached' && snapshot.badge.state !== 'disabled') {
+      if (snapshot.badge.relaunching) state.confirmRelaunch = false;
+      const msg = snapshot.badge.relaunching
+        ? 'Relaunching Antigravity desktop with --remote-debugging-port=9222. The composer badge will attach once the window finishes loading.'
+        : snapshot.badge.state === 'no-composer'
+          ? 'Inline composer badge could not match Antigravity composer selectors (' + snapshot.badge.probedPages + ' target(s) inspected). Dashboard telemetry remains live here.'
+          : 'Inline composer badge is inactive: Antigravity desktop was launched without --remote-debugging-port=9222. Relaunch via "Antigravity (with Monitor)" or use the button below.';
+      const noticeNodes = [el('div', { text: msg })];
+      if (snapshot.badge.state === 'no-devtools') {
+        if (snapshot.badge.relaunching) {
+          noticeNodes.push(el('div', { className: 'notice__actions' }, [
+            el('button', { className: 'btn btn--small', attrs: { type: 'button', disabled: 'disabled' }, text: 'Relaunching Antigravity…' }),
+          ]));
+        } else if (state.confirmRelaunch) {
+          noticeNodes.push(el('div', { className: 'notice__actions' }, [
+            el('button', {
+              className: 'btn btn--small btn--primary',
+              attrs: { type: 'button' },
+              text: 'Confirm quit & relaunch Antigravity',
+              on: {
+                click: function () {
+                  state.confirmRelaunch = false;
+                  state.rendered.delete('overview');
+                  send({ type: 'relaunchApp' });
+                  renderActivePane();
+                },
+              },
+            }),
+            el('button', {
+              className: 'btn btn--small',
+              attrs: { type: 'button' },
+              text: 'Cancel',
+              on: {
+                click: function () {
+                  state.confirmRelaunch = false;
+                  state.rendered.delete('overview');
+                  renderActivePane();
+                },
+              },
+            }),
+          ]));
+        } else {
+          noticeNodes.push(el('div', { className: 'notice__actions' }, [
+            el('button', {
+              className: 'btn btn--small',
+              attrs: { type: 'button' },
+              text: 'Relaunch Antigravity with badge',
+              on: {
+                click: function () {
+                  state.confirmRelaunch = true;
+                  state.rendered.delete('overview');
+                  renderActivePane();
+                },
+              },
+            }),
+          ]));
+        }
+      }
+      pane.appendChild(el('div', { className: 'notice' }, noticeNodes));
     }
 
     // Band 1: Ruled Primary Split (Context & Speed | Quota Pools)
@@ -584,15 +732,22 @@
     ]);
 
     const fill = el('div', { className: 'ruler__fill', attrs: { 'data-band': band } });
-    fill.style.width = pctRatio + '%';
-    const warnTick = el('div', { className: 'ruler__tick', attrs: { title: 'Warning threshold ' + threshold + '%' } });
+    applyFillRatio(fill, 'context:' + conversation.id, pctRatio);
+    const rulerChildren = [fill];
+    for (const mark of [25, 50, 75]) {
+      if (Math.abs(mark - threshold) >= 3) {
+        const qt = el('div', { className: 'ruler__tick ruler__tick--quarter' });
+        qt.style.left = mark + '%';
+        rulerChildren.push(qt);
+      }
+    }
+    const warnTick = el('div', { className: 'ruler__tick ruler__tick--warn', attrs: { title: 'Warning threshold ' + threshold + '%' } });
     warnTick.style.left = threshold + '%';
-    const critTick = el('div', { className: 'ruler__tick', attrs: { title: 'Critical 95%' } });
+    const critTick = el('div', { className: 'ruler__tick ruler__tick--crit', attrs: { title: 'Critical 95%' } });
     critTick.style.left = '95%';
+    rulerChildren.push(warnTick, critTick);
 
-    const ruler = el('div', { className: 'ruler', attrs: { role: 'progressbar', 'aria-valuenow': String(Math.round(pctRatio)), 'aria-valuemin': '0', 'aria-valuemax': '100' } }, [
-      fill, warnTick, critTick,
-    ]);
+    const ruler = el('div', { className: 'ruler', attrs: { role: 'progressbar', 'aria-valuenow': String(Math.round(pctRatio)), 'aria-valuemin': '0', 'aria-valuemax': '100' } }, rulerChildren);
 
     const rulerMeta = el('div', { className: 'ruler-meta' }, [
       el('span', {}, [
@@ -675,11 +830,10 @@
     const quota = quotaView(snapshot);
     const groups = (quota && quota.groups) || [];
     const activeModel = activeSelectedModel(snapshot);
-    const matchedGroup = resolveQuotaGroupLocal(groups, activeModel);
 
     const list = el('div', { className: 'quota-list' });
     for (const group of groups) {
-      const isSelected = matchedGroup && matchedGroup.id === group.id;
+      const isSelected = Boolean(snapshot.activeQuotaGroupId && snapshot.activeQuotaGroupId === group.id);
       const poolBadges = [];
       if (isSelected) poolBadges.push(el('span', { className: 'badge badge--accent', text: 'Active' }));
       const minLivePct = (group.buckets || []).reduce(function (lowest, bucket) {
@@ -698,7 +852,7 @@
         const bar = el('div', { className: 'bar' });
         if (pct !== null) {
           const fill = el('div', { className: 'bar__fill', attrs: { 'data-band': bandOf(100 - pct, 80) } });
-          fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+          applyFillRatio(fill, 'quota:' + group.id + ':' + window, pct);
           bar.appendChild(fill);
         }
         windows.appendChild(
@@ -774,9 +928,11 @@
     ];
 
     return el('section', { className: 'kpi-strip', attrs: { 'aria-label': 'Key metrics' } }, cells.map(function (c) {
+      const valNode = el('div', { className: 'kpi-cell__value', text: c.value });
+      flashIfChanged(valNode, 'kpi:' + c.label, c.value);
       return el('div', { className: 'kpi-cell' }, [
         el('div', { className: 'kpi-cell__label', text: c.label }),
-        el('div', { className: 'kpi-cell__value', text: c.value }),
+        valNode,
         el('div', { className: 'kpi-cell__sub', text: c.sub }),
       ]);
     }));
@@ -907,16 +1063,26 @@
     const days = usage.days || [];
     const max = days.reduce(function (peak, day) { return Math.max(peak, day.tokens); }, 0);
     const todayKey = days.length > 0 ? days[days.length - 1].day : null;
+    const defaultHint = usage.priced ? '14 days' : usage.monthTokens > 0 ? 'unpriced model' : '14 days';
+    const hintNode = el('span', { className: 'panel__hint', text: defaultHint });
 
     const plot = el('div', { className: 'usage-plot' }, [el('div', { className: 'usage-plot__mid' })]);
     for (const day of days) {
       const ratio = max > 0 ? day.tokens / max : 0;
       const tip = day.day + ': ' + fmtExact(day.tokens) + ' tokens' + (day.costUsd ? ' · ' + fmtUsd(day.costUsd) : '');
-      const bar = el('div', { className: 'usage-day__bar', attrs: { title: tip } });
+      const bar = el('div', { className: 'usage-day__bar' });
       bar.style.height = Math.max(2, Math.round(ratio * 102)) + 'px';
-      plot.appendChild(
-        el('div', { className: 'usage-day' + (day.day === todayKey ? ' usage-day--today' : ''), attrs: { title: tip } }, [bar]),
-      );
+      const col = el('div', {
+        className: 'usage-day' + (day.day === todayKey ? ' usage-day--today' : ''),
+        attrs: { title: tip, tabindex: '0', 'aria-label': tip },
+        on: {
+          mouseenter: function () { col.setAttribute('data-hovered', 'true'); hintNode.textContent = tip; },
+          mouseleave: function () { col.removeAttribute('data-hovered'); hintNode.textContent = defaultHint; },
+          focus: function () { col.setAttribute('data-hovered', 'true'); hintNode.textContent = tip; },
+          blur: function () { col.removeAttribute('data-hovered'); hintNode.textContent = defaultHint; },
+        },
+      }, [bar]);
+      plot.appendChild(col);
     }
 
     const scale = el('div', { className: 'usage-scale' }, [
@@ -961,7 +1127,7 @@
     body.push(el('p', { className: 'figure-note', text: 'Local model observations only; API-equivalent rates are estimates, not billing.' }));
 
     return [
-      cellHead('Daily usage', usage.priced ? '14 days' : usage.monthTokens > 0 ? 'unpriced model' : '14 days'),
+      el('div', { className: 'panel__head' }, [el('h2', { className: 'panel__title', text: 'Daily usage' }), hintNode]),
       el('div', { className: 'analytics-body' }, body),
     ];
   }
@@ -1131,7 +1297,7 @@
       if (session.percent !== null) {
         const bar = el('div', { className: 'bar' });
         const fill = el('div', { className: 'bar__fill', attrs: { 'data-band': bandOf(session.percent, snapshot.prefs.warningThreshold) } });
-        fill.style.width = Math.min(100, Math.max(0, session.percent)) + '%';
+        applyFillRatio(fill, 'session:' + session.id, session.percent);
         bar.appendChild(fill);
         rightChildren.push(bar);
       }
@@ -1185,8 +1351,7 @@
     const byPool = new Map();
 
     for (const model of models) {
-      const matched = resolveQuotaGroupLocal(groups, model.label, { resetsAt: model.resetsAt, percent: model.quotaPercent });
-      const poolName = model.quotaGroup || (matched ? matched.label : 'Other models');
+      const poolName = model.quotaGroup || 'Other models';
       const list = byPool.get(poolName) || [];
       list.push(model);
       byPool.set(poolName, list);
@@ -1203,7 +1368,7 @@
           const bar = el('div', { className: 'bar' });
           if (ok) {
             const fill = el('div', { className: 'bar__fill', attrs: { 'data-band': bandOf(100 - bucket.percent, 80) } });
-            fill.style.width = Math.min(100, Math.max(0, bucket.percent)) + '%';
+            applyFillRatio(fill, 'pool:' + groupObj.id + ':' + win, bucket.percent);
             bar.appendChild(fill);
           }
           limits.push(
@@ -1238,7 +1403,7 @@
         if (model.quotaPercent !== null && !groupObj) {
           const bar = el('div', { className: 'bar' });
           const fill = el('div', { className: 'bar__fill', attrs: { 'data-band': bandOf(100 - model.quotaPercent, 80) } });
-          fill.style.width = Math.min(100, Math.max(0, model.quotaPercent)) + '%';
+          applyFillRatio(fill, 'model:' + (model.modelId || model.label), model.quotaPercent);
           bar.appendChild(fill);
           children.push(el('div', { className: 'bar-row' }, [bar, el('span', { className: 'bar-row__value', text: fmtWhole(model.quotaPercent) })]));
         }
@@ -1321,7 +1486,12 @@
         input.checked = Boolean(value);
         control.appendChild(
           el('label', { className: 'setting__toggle', attrs: { for: 'setting-' + spec.key } }, [
-            input,
+            el('span', { className: 'switch' }, [
+              input,
+              el('span', { className: 'switch__track', attrs: { 'aria-hidden': 'true' } }, [
+                el('span', { className: 'switch__knob' }),
+              ]),
+            ]),
             el('span', { text: input.checked ? 'Enabled' : 'Disabled' }),
           ]),
         );
@@ -1399,7 +1569,12 @@
         },
       });
       input.checked = typeof snapshot.prefs[key] === 'boolean' ? snapshot.prefs[key] : fallback;
-      snippets.appendChild(el('label', { className: 'snippet-option', attrs: { for: 'setting-' + key } }, [input, el('span', { text: label })]));
+      snippets.appendChild(
+        el('label', { className: 'snippet-option' + (input.checked ? ' snippet-option--active' : ''), attrs: { for: 'setting-' + key } }, [
+          input,
+          el('span', { text: label }),
+        ]),
+      );
     }
 
     pane.appendChild(
@@ -1473,6 +1648,7 @@
       diagNodes.push(
         el('div', { className: 'ledger' }, [
           fact('Status', snapshot.status),
+          fact('Inline badge', formatBadgeStatus(snapshot.badge)),
           fact('Snapshot time', new Date(snapshot.generatedAt).toLocaleString()),
           fact('Reachable apps', String((snapshot.backends || []).filter(function (b) { return b.reachable; }).length)),
           fact('Quota source', snapshot.quota ? 'Local backend · ' + snapshot.quota.status : 'Waiting'),
@@ -1487,7 +1663,7 @@
 
   // -------------------------------------------------------------------- boot
 
-  selectTab(state.tab);
+  selectTab(state.tab, false);
   renderEmptyPane(panes[state.tab], 'Waiting for the first reading', 'Antigravity Monitor is connecting to the local language server.');
   send({ type: 'ready' });
 })();

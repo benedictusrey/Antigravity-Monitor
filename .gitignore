@@ -7,6 +7,7 @@ out/
 preview/
 .taste-skill/
 .audit-temp/
+anti-slop/
 release/
 docs/VALIDATION-*.md
 docs/superpowers/

@@ -102,3 +102,26 @@ test('a payload limit change retries a conversation cached as oversized', () => 
   assert.equal(priorSignal.aborted, true, 'old-limit reads cannot restore the fatal cache');
   monitor.stop();
 });
+
+test('refreshAccountIfDue keeps picker data when GetAvailableModels fails and retries quickly', async () => {
+  const { monitor, internal, instances } = setup();
+  internal.lastStatusRefresh = 0;
+  internal.call = async (_target: unknown, method: string) => {
+    if (method === 'GetAvailableModels') throw new Error('not_found');
+    return {
+      userStatus: {
+        name: 'Tester',
+        cascadeModelConfigData: {
+          clientModelConfigs: [
+            { label: 'Gemini 4 Neon (High)', modelOrAlias: { model: 'MODEL_PLACEHOLDER_M532' }, quotaInfo: { remainingFraction: 0.9 } },
+          ],
+        },
+      },
+    };
+  };
+  await internal.refreshAccountIfDue(instances[0].target, new AbortController().signal);
+  assert.equal(internal.picker.length, 1);
+  assert.equal(internal.picker[0].label, 'Gemini 4 Neon (High)');
+  assert.ok(Date.now() - internal.lastStatusRefresh >= 40_000, 'partial failure shortens retry cooldown');
+  monitor.stop();
+});

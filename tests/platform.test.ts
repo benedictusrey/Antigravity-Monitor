@@ -27,9 +27,10 @@ test('DevTools port discovery uses the host platform, including custom Linux con
   const { devtoolsEndpoints } = await load('cdp-badge.mjs');
   const mac = devtoolsEndpoints({}, 'darwin', '/Users/test');
   assert.equal(mac[0].file, '/Users/test/Library/Application Support/Antigravity/DevToolsActivePort');
-  assert.deepEqual(mac.map((entry: { app: string }) => entry.app), ['app', 'ide', 'vscode']);
+  assert.deepEqual(mac.map((entry: { app: string }) => entry.app), ['app', 'ide', 'vscode', 'vscode']);
   const linux = devtoolsEndpoints({ XDG_CONFIG_HOME: '/config' }, 'linux', '/home/test');
   assert.equal(linux[0].file, '/config/Antigravity/DevToolsActivePort');
+  assert.equal(linux[3].file, '/config/Code - Insiders/DevToolsActivePort');
 });
 
 test('autostart documents preserve spaces and escape XML or desktop field codes', async () => {
@@ -65,7 +66,7 @@ test('POSIX installer rejects missing explicit --vsix and cleans Linux desktop e
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agm-posix-test-'));
   try {
     assert.throws(
-      () => resolveVsixFile(tempRoot, '1.1.0', path.join(tempRoot, 'missing.vsix')),
+      () => resolveVsixFile(tempRoot, '1.2.0', path.join(tempRoot, 'missing.vsix')),
       /VSIX package not found/,
     );
     const autostart = path.join(tempRoot, 'autostart.desktop');
@@ -87,12 +88,19 @@ test('POSIX installer rejects missing explicit --vsix and cleans Linux desktop e
   }
 });
 
-test('setZipUnixPermissions writes UNIX creator and 0755 modes for POSIX launchers', async () => {
+test('setZipUnixPermissions writes UNIX creator, 0755 modes, and forward slashes in LFH and CD headers', async () => {
   const { setZipUnixPermissions } = await importModule(
     pathToFileURL(path.resolve(__dirname, '..', '..', 'scripts', 'set-zip-permissions.mjs')).href,
   );
-  const nameA = Buffer.from('dir/Install Antigravity Monitor.command', 'utf8');
-  const nameB = Buffer.from('dir/README.md', 'utf8');
+  const nameA = Buffer.from('dir\\Install Antigravity Monitor.command', 'utf8');
+  const nameB = Buffer.from('dir\\README.md', 'utf8');
+  const localHeader = (name: Buffer): Buffer => {
+    const rec = Buffer.alloc(30 + name.length);
+    rec.writeUInt32LE(0x04034b50, 0);
+    rec.writeUInt16LE(name.length, 26);
+    name.copy(rec, 30);
+    return rec;
+  };
   const header = (name: Buffer, offset: number): Buffer => {
     const rec = Buffer.alloc(46 + name.length);
     rec.writeUInt32LE(0x02014b50, 0);
@@ -102,24 +110,30 @@ test('setZipUnixPermissions writes UNIX creator and 0755 modes for POSIX launche
     name.copy(rec, 46);
     return rec;
   };
-  const cd = Buffer.concat([header(nameA, 0), header(nameB, 0)]);
+  const lfhA = localHeader(nameA);
+  const lfhB = localHeader(nameB);
+  const cdOffset = lfhA.length + lfhB.length;
+  const cd = Buffer.concat([header(nameA, 0), header(nameB, lfhA.length)]);
   const eocd = Buffer.alloc(22);
   eocd.writeUInt32LE(0x06054b50, 0);
   eocd.writeUInt16LE(2, 8);
   eocd.writeUInt16LE(2, 10);
   eocd.writeUInt32LE(cd.length, 12);
-  eocd.writeUInt32LE(0, 16);
+  eocd.writeUInt32LE(cdOffset, 16);
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agm-zip-test-'));
   const zipPath = path.join(tempRoot, 'sample.zip');
   try {
-    fs.writeFileSync(zipPath, Buffer.concat([cd, eocd]));
+    fs.writeFileSync(zipPath, Buffer.concat([lfhA, lfhB, cd, eocd]));
     setZipUnixPermissions(zipPath);
     const patched = fs.readFileSync(zipPath);
-    assert.equal(patched.readUInt16LE(4) >> 8, 3);
-    assert.equal(patched.readUInt32LE(38) >>> 16, 0o100755);
-    const secondOffset = 46 + nameA.length;
+    assert.equal(patched.subarray(30, 30 + nameA.length).toString('utf8'), 'dir/Install Antigravity Monitor.command');
+    assert.equal(patched.readUInt16LE(cdOffset + 4) >> 8, 3);
+    assert.equal(patched.readUInt32LE(cdOffset + 38) >>> 16, 0o100755);
+    assert.equal(patched.subarray(cdOffset + 46, cdOffset + 46 + nameA.length).toString('utf8'), 'dir/Install Antigravity Monitor.command');
+    const secondOffset = cdOffset + 46 + nameA.length;
     assert.equal(patched.readUInt16LE(secondOffset + 4) >> 8, 3);
     assert.equal(patched.readUInt32LE(secondOffset + 38) >>> 16, 0o100644);
+    assert.equal(patched.subarray(secondOffset + 46, secondOffset + 46 + nameB.length).toString('utf8'), 'dir/README.md');
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

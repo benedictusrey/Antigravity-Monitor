@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.2.0
+
+Forward-compatibility hardening for newer Antigravity backends and model catalogs, dashboard UI/motion upgrades, and cleanly organized universal installer packages under `release/v1.2.0/`. Source, native extension, companion, Windows EXE metadata, and release packages are bumped to **v1.2.0**.
+
+### Compatibility and model/quota resilience
+
+- Generalized `resolveQuotaGroup` (`src/core/quota.ts`) with pool description membership parsing (`Models within this group: ...`), distinctive dedicated-pool token matching, family-aware tie-breaking when two pools share `100%` weekly reset values (such as `Claude and GPT models` vs `Gemini 4 Argon`), generic family fallback, and window aliases (`7d`/`week`, `five_hour`/`5_hour`/`5-hour`/`session`), surfaced via `activeQuotaGroupId` in `Snapshot`.
+- Expanded dynamic model recognition (`src/core/models.ts`) with fallback metadata for `M532`..`M535` (`Gemini 4 Neon`), `M537` (`Orchestrator (Neon)`), and `M578` (`Gemini 4 Hydrogen Sonar`), `humanizeSlug` formatting when backends omit `displayName`, broader `parseUserStatus` field aliases (`modelOrAlias.alias`, `record.modelId`, `maxContextTokens`), name-based pricing fallback in `priceFor`/`estimateCost`, raised model row cap (`24` -> `64`), and `Promise.allSettled` retry backoff (`10s`) on partial account refreshes.
+- Hardened trajectory analysis, selection, and discovery (`src/core/analysis.ts`, `src/core/select.ts`, `src/core/discovery.ts`) to read `metadata.requestedModel.model`, future non-planner response step types carrying `metadata.modelUsage`, alternate token field names (`promptTokens`, `completionTokens`, `cachedInputTokens`, `cacheWriteTokens`), bare `RUNNING`/`IDLE` statuses, and renamed backend binaries (`cortex_server*`, `antigravity_server*`, `--csrf_token` + `--https_server_port`, `Antigravity*`, `Code*`).
+- Updated `tools/cdp-badge.mjs` (`VERSION = 24`) with widened DOM placement fallbacks (`model-selector-trigger` parent bar plus semantic `Turbo`/model-button & `Ask` input fallbacks), `127.0.0.1:9222` CDP fallback probing, `badge` status + 1-click **"Relaunch Antigravity with badge"** button in the companion dashboard (`relaunchApp`), clean `MutationObserver` disconnect + `AbortController` listener cleanup on upgrades, route/query parsing (`/c|/chat|/conversation|/t|/thread/`, `?conversationId|cascadeId=`), and `Code - Insiders` support.
+- Hardened Windows/POSIX installers (`tools/install-windows.ps1`, `tools/install-posix.mjs`) to clean replaced runtime directories on upgrade, create an `"Antigravity (with Monitor)"` Start Menu shortcut launching with `--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1`, check DevTools availability after install, normalize `\` to `/` in POSIX/Windows ZIP headers (`scripts/set-zip-permissions.mjs`), and remove ~90 lines of dead legacy quota-row helpers (`parseQuotaRows`, `sanitiseLimits`, `devtoolsPortFiles`).
+
+### Interface and motion upgrades
+
+- Updated `data-terminal` palette tokens (`#0e1014` dark ground, `#0b5ed7` light accent), added a sliding `#tab-indicator`, user-triggered `.pane--entering` transitions, `scaleX`-composited context/quota gauges with ruler ticks, tactile `.switch` toggles in Settings, interactive `Daily usage` hover/focus hint readout, topbar `Copy` summary button with refresh icon spin, and `prefers-reduced-motion` support (`media/dashboard.html`, `media/dashboard.css`, `media/dashboard.js`, `docs/DESIGN.md`).
+- Updated inline composer pill/card feedback in `tools/cdp-badge.mjs` with press/hover transitions, `scaleX` progress bars, card entrance transitions, and `Copied` feedback.
+
+### Release packaging and validation
+
+- Rebuilt `antigravity-monitor-1.2.0.vsix`, branded Windows EXE launchers (`v1.2.0` metadata), ICO/ICNS assets, and OS-specific universal installer archives organized cleanly with unpacked copies placed under `release/v1.2.0/staging/`.
+- Verified compilation, `214/214` automated tests, `0` `npm audit` advisories, live `Antigravity.exe 2.33.0` backend telemetry (`24` picker models) and live CDP badge attachment (`attached: 1`), Windows launcher verification, `16` WCAG AA contrast checks, and headless Chrome click-through across desktop/companion/mobile dark & light viewports.
+
 ## v1.1.0
 
 Accuracy, automatic model/quota-pool recognition, Antigravity startup activation, audit fixes, and substantial UI polish. Source, native extension, companion, and current packages are bumped to **v1.1.0**.

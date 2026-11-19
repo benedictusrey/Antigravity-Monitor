@@ -117,28 +117,6 @@ export function serialiseBuckets(buckets) {
   return Object.fromEntries(buckets);
 }
 
-/** A cached weekly reading, or nothing if the file was tampered with. */
-export function sanitiseLimits(raw) {
-  if (!isRecord(raw) || !isRecord(raw.weekly)) {
-    return null;
-  }
-  const percent = Number(raw.weekly.percent);
-  const readAt = Number(raw.readAt);
-  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
-    return null;
-  }
-  if (!Number.isFinite(readAt) || readAt <= 0) {
-    return null;
-  }
-  return {
-    weekly: {
-      percent,
-      resetText: typeof raw.weekly.resetText === 'string' ? raw.weekly.resetText.slice(0, 40) : null,
-    },
-    readAt,
-  };
-}
-
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

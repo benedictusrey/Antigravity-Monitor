@@ -266,3 +266,33 @@ test('computes decode tok/s from viewableAt to finishedGeneratingAt and falls ba
   ]);
   assert.equal(noFinish.measured?.tokPerSec, null);
 });
+
+test('analyzeSteps reads future response step types, token aliases, and requestedModel', () => {
+  const analysis = analyzeSteps([
+    {
+      type: 'CORTEX_STEP_TYPE_MODEL_RESPONSE',
+      metadata: {
+        createdAt: '2026-11-19T04:00:00.000Z',
+        modelUsage: {
+          model: 'MODEL_PLACEHOLDER_M532',
+          promptTokens: '1200',
+          cachedInputTokens: '800',
+          cacheWriteTokens: '50',
+          completionTokens: '150',
+        },
+      },
+    },
+    {
+      type: 'CORTEX_STEP_TYPE_VIEW_FILE',
+      metadata: {
+        createdAt: '2026-11-19T04:00:05.000Z',
+        requestedModel: { model: 'MODEL_PLACEHOLDER_M537' },
+      },
+    },
+  ]);
+
+  assert.equal(analysis.used, 2200);
+  assert.equal(analysis.source, 'measured');
+  assert.equal(analysis.modelId, 'MODEL_PLACEHOLDER_M532');
+  assert.equal(analysis.selectedModelId, 'MODEL_PLACEHOLDER_M537');
+});

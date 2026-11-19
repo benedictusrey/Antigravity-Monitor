@@ -59,6 +59,7 @@ foreach ($relative in @('package.json', 'LICENSE', 'tools', 'media', 'out\src', 
         Copy-Item -LiteralPath $target -Destination $saved -Recurse
     }
     if (Test-Path -LiteralPath $source -PathType Container) {
+        if (Test-Path -LiteralPath $target -PathType Container) { Remove-Item -LiteralPath $target -Recurse -Force }
         New-Item -ItemType Directory -Path $target -Force | Out-Null
         Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $target -Recurse -Force
     } else {
@@ -89,6 +90,39 @@ $menuShortcut.WorkingDirectory = $appRoot
 $menuShortcut.IconLocation = (Join-Path $appRoot 'media\icon.ico') + ',0'
 $menuShortcut.Description = 'Open the local Antigravity Monitor dashboard.'
 $menuShortcut.Save()
+$agExe = @(
+    (Join-Path $env:LOCALAPPDATA 'Programs\antigravity\Antigravity.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Antigravity\Antigravity.exe'),
+    (Join-Path $env:ProgramFiles 'Antigravity\Antigravity.exe')
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $agExe) {
+    foreach ($lnkPath in @(
+        (Join-Path ([Environment]::GetFolderPath('Programs')) 'Antigravity.lnk'),
+        (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Antigravity.lnk')
+    )) {
+        if (Test-Path -LiteralPath $lnkPath -PathType Leaf) {
+            $existingAg = $shell.CreateShortcut($lnkPath)
+            if ($existingAg.TargetPath -and (Test-Path -LiteralPath $existingAg.TargetPath -PathType Leaf)) {
+                $agExe = $existingAg.TargetPath
+                break
+            }
+        }
+    }
+}
+if ($agExe) {
+    foreach ($shortcutFile in @(
+        (Join-Path $programFolder 'Antigravity (with Monitor).lnk'),
+        (Join-Path ([Environment]::GetFolderPath('Programs')) 'Antigravity (with Monitor).lnk')
+    )) {
+        $agMonitorLnk = $shell.CreateShortcut($shortcutFile)
+        $agMonitorLnk.TargetPath = $agExe
+        $agMonitorLnk.Arguments = '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1'
+        $agMonitorLnk.WorkingDirectory = Split-Path -Parent $agExe
+        $agMonitorLnk.IconLocation = $agExe + ',0'
+        $agMonitorLnk.Description = 'Launch Antigravity desktop with local DevTools enabled for the inline monitor badge.'
+        $agMonitorLnk.Save()
+    }
+}
 try {
     $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
     if (Test-Path -LiteralPath $runKey) {
@@ -109,6 +143,26 @@ if ($LASTEXITCODE -ne 0) { throw 'Background companion failed to start. See the 
 Write-Output 'White Antigravity: companion installed, started, and enabled at sign-in.'
 Write-Output ('Runtime: ' + $appRoot)
 Write-Output ('Startup: ' + $shortcutPath)
+$devtoolsReady = Test-Path -LiteralPath (Join-Path $env:APPDATA 'Antigravity\DevToolsActivePort') -PathType Leaf
+if (-not $devtoolsReady) {
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $iar = $tcp.BeginConnect('127.0.0.1', 9222, $null, $null)
+        if ($iar.AsyncWaitHandle.WaitOne(250, $false) -and $tcp.Connected) { $devtoolsReady = $true }
+        $tcp.Close()
+    } catch {}
+}
+if ($devtoolsReady) {
+    Write-Output 'Inline composer badge: DevTools endpoint detected.'
+} else {
+    Write-Output 'Inline composer badge: no DevTools endpoint detected yet (dashboard works at http://127.0.0.1:4599).'
+    if ($agExe) {
+        Write-Output ('To show the inline pill in Antigravity, quit Antigravity completely and launch "Antigravity (with Monitor)" from the Start Menu, or run:')
+        Write-Output ('  "' + $agExe + '" --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1')
+    } else {
+        Write-Output 'To show the inline pill in Antigravity, quit Antigravity completely and relaunch with --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1'
+    }
+}
 Write-Output 'The companion stays running and reconnects when apps close and reopen.'
 Write-Output 'Reload IDE and VS Code windows to activate the updated native extension.'
 if ($failures.Count) { throw ('Extension installation failed for: ' + ($failures -join ', ')) }

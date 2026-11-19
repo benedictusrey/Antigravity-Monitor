@@ -149,3 +149,58 @@ test('multi-group Gemini quota resolves Gemini Models, Argon, and future models 
     'Gemini Models',
   );
 });
+
+test('resolveQuotaGroup breaks reset-time ties and supports arbitrary future dedicated pools', () => {
+  const futureGroups = parseQuotaSummary({
+    groups: [
+      {
+        displayName: 'Gemini Models',
+        description: 'Models within this group: Gemini 4 Neon, Gemini 4 Hydrogen, Orchestrator (Neon), Gemini 3.8 Flash',
+        buckets: [
+          { bucketId: 'gemini-weekly', window: '7d', remainingFraction: 0.96, resetTime: '2026-11-25T07:25:34Z' },
+          { bucketId: 'gemini-5h', window: 'five_hour', remainingFraction: 0.91, resetTime: '2026-11-19T04:44:45Z' },
+        ],
+      },
+      {
+        displayName: 'Claude and GPT models',
+        description: 'Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B',
+        buckets: [
+          { bucketId: '3p-weekly', window: 'week', remainingFraction: 1, resetTime: '2026-11-26T04:10:52Z' },
+          { bucketId: '3p-5h', window: '5_hour', remainingFraction: 1, resetTime: '2026-11-19T09:10:52Z' },
+        ],
+      },
+      {
+        displayName: 'Gemini 4 Argon',
+        description: 'For paid Pro plans, Argon quota is separate.',
+        buckets: [
+          { bucketId: 'gemini-argon-wtu-weekly', window: 'weekly', remainingFraction: 1, resetTime: '2026-11-26T04:10:52Z' },
+        ],
+      },
+      {
+        displayName: 'Gemini 4 Carbon',
+        description: 'For paid Pro plans, Carbon quota is separate.',
+        buckets: [
+          { bucketId: 'gemini-carbon-weekly', window: 'weekly', remainingFraction: 0.75, resetTime: '2026-11-26T04:10:52Z' },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(futureGroups[0].buckets[0].window, 'weekly');
+  assert.equal(futureGroups[0].buckets[1].window, '5h');
+  assert.equal(futureGroups[1].buckets[0].window, 'weekly');
+  assert.equal(futureGroups[1].buckets[1].window, '5h');
+
+  assert.equal(
+    resolveQuotaGroup(futureGroups, 'Orchestrator (Argon)', { resetsAt: '2026-11-26T04:10:52Z', percent: 100 })?.label,
+    'Gemini 4 Argon',
+  );
+  assert.equal(
+    resolveQuotaGroup(futureGroups, 'Claude Opus 5.5 (High)', { resetsAt: '2026-11-26T04:10:52Z', percent: 100 })?.label,
+    'Claude and GPT models',
+  );
+  assert.equal(resolveQuotaGroup(futureGroups, 'Gemini 4 Carbon')?.label, 'Gemini 4 Carbon');
+  assert.equal(resolveQuotaGroup(futureGroups, 'Gemini 4 Neon (XHigh)')?.label, 'Gemini Models');
+  assert.equal(resolveQuotaGroup(futureGroups, 'Orchestrator (Neon)')?.label, 'Gemini Models');
+  assert.equal(resolveQuotaGroup(futureGroups, 'Gemini 5 Flash')?.label, 'Gemini Models');
+});

@@ -329,3 +329,14 @@ test('subagent trajectories are marked and top-level threads take precedence', (
   assert.equal(main?.isSubagent, false);
   assert.equal(chooseConversation(list, new Map(), null)?.conversation.id, 'main1');
 });
+
+test('parseTrajectories normalises bare RUNNING and IDLE statuses', () => {
+  const list = parseTrajectories({
+    trajectorySummaries: {
+      r1: { summary: 'Live', stepCount: 3, status: 'RUNNING', lastModifiedTime: '2026-11-19T03:00:00Z' },
+      i1: { summary: 'Idle', stepCount: 2, status: 'IDLE', lastModifiedTime: '2026-11-19T02:00:00Z' },
+    },
+  });
+  assert.equal(list.find((item) => item.id === 'r1')?.status, 'running');
+  assert.equal(list.find((item) => item.id === 'i1')?.status, 'idle');
+});

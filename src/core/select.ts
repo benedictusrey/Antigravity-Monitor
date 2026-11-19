@@ -50,10 +50,10 @@ export interface ConversationSelection {
 
 function parseStatus(raw: string | null): ConversationStatus {
   const status = (raw ?? '').toUpperCase();
-  if (status.endsWith('_RUNNING')) {
+  if (status === 'RUNNING' || status.endsWith('_RUNNING')) {
     return 'running';
   }
-  if (status.endsWith('_IDLE')) {
+  if (status === 'IDLE' || status.endsWith('_IDLE')) {
     return 'idle';
   }
   return 'other';

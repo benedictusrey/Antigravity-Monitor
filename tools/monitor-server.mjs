@@ -13,7 +13,7 @@
  * polling every backend twice alongside the first.
  */
 
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
@@ -215,10 +215,61 @@ function readBody(request) {
   });
 }
 
+let relaunching = false;
+
+function wakeBadgeAfterRelaunch() {
+  for (const ms of [1500, 3500, 6000]) {
+    const t = setTimeout(() => badge?.wake(), ms);
+    t.unref?.();
+  }
+}
+
+function relaunchDesktopApp() {
+  if (relaunching) return;
+  relaunching = true;
+  const finish = () => {
+    relaunching = false;
+    wakeBadgeAfterRelaunch();
+  };
+  if (process.platform === 'win32') {
+    const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const script = [
+      "$guis = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'Antigravity.exe' -and $_.CommandLine -notmatch '--type=|sidecar_sdk|--import=' })",
+      "$exe = ($guis | Select-Object -First 1).ExecutablePath",
+      "if (-not $exe) { $exe = Join-Path $env:LOCALAPPDATA 'Programs\\antigravity\\Antigravity.exe' }",
+      "if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { exit 1 }",
+      "foreach ($g in $guis) { $p = Get-Process -Id $g.ProcessId -ErrorAction SilentlyContinue; if ($p) { [void]$p.CloseMainWindow(); if (-not $p.WaitForExit(2500)) { Stop-Process -Id $g.ProcessId -ErrorAction SilentlyContinue } } }",
+      "$deadline = [DateTime]::UtcNow.AddSeconds(3)",
+      "while ([DateTime]::UtcNow -lt $deadline) { if (-not (Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'Antigravity.exe' -and $_.CommandLine -notmatch 'sidecar_sdk|--import=' })) { break }; Start-Sleep -Milliseconds 200 }",
+      "Start-Process -FilePath $exe -ArgumentList '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1'",
+    ].join('; ');
+    execFile(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script], { windowsHide: true }, (err) => {
+      if (err) console.error(`[relaunch] ${err.message}`);
+      finish();
+    });
+    return;
+  }
+  if (process.platform === 'darwin') {
+    execFile('/usr/bin/osascript', ['-e', 'tell application "Antigravity" to quit'], () => {
+      setTimeout(() => {
+        const child = spawn('/usr/bin/open', ['-a', 'Antigravity', '--args', '--remote-debugging-port=9222', '--remote-debugging-address=127.0.0.1'], { detached: true, stdio: 'ignore' });
+        child.on('error', () => {});
+        child.unref();
+        finish();
+      }, 1500);
+    });
+    return;
+  }
+  finish();
+}
+
 function applyCommand(message) {
   switch (message.type) {
     case 'refresh':
       monitor.refreshNow();
+      return;
+    case 'relaunchApp':
+      relaunchDesktopApp();
       return;
     case 'selectBackend':
       monitor.selectBackend(message.id);
@@ -259,7 +310,10 @@ const server = http.createServer((request, response) => {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/snapshot') {
-    sendJson(response, 200, { snapshot: latest });
+    const badgeStatus = badge
+      ? { ...badge.getStatus(), relaunching }
+      : { state: 'disabled', attached: 0, reachablePorts: 0, probedPages: 0, relaunching: false };
+    sendJson(response, 200, { snapshot: latest ? { ...latest, badge: badgeStatus } : null });
     return;
   }
 

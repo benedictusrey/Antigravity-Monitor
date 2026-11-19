@@ -1,23 +1,24 @@
-# Antigravity Monitor v1.1.0
+# Antigravity Monitor v1.2.0
 
 Antigravity Monitor keeps context usage, model quotas, and the active conversation thread on screen within reach. The white desktop app uses a background companion that activates automatically alongside Antigravity; Antigravity IDE and VS Code also have native status-bar and dashboard surfaces.
 
 ## Highlights
 
-- **Output generation speed (`tok/s` snippet):** Measures provider output rate accurately from response decode windows (`viewableAt` -> `finishedGeneratingAt`, with full-turn fallback for sub-500ms windows) and exposes it across Custom snippets, status bar tooltip, Overview KPI strip, and Session ledger.
-- **Automatic new-model & quota-pool discovery:** New backend models (`Gemini 4 Argon`, `Gemini 4 Hydrogen`, `Gemini 4 Carbon`, `Orchestrator (Argon)`, `Gemini 3.8 Flash`, `Claude Opus 5.5`, `Claude Sonnet 5.5`, `GPT-OSS 120B`, and future releases) and separate quota pools (`Gemini Models`, `Gemini 4 Argon`, `Claude and GPT models`) appear automatically without manual updates.
-- **Active thread & subagent awareness:** Separates top-level conversations from child subagents (`Threads` tab), nests subagents under parent threads, supports instant search and pinning/auto-following, and tracks mid-conversation model switches cleanly.
-- **Auto-activation & universal installers:** Watches `DevToolsActivePort`, wakes alongside Antigravity IDE / VS Code on extension activation, and ships hardened Windows (`.exe`/`.cmd`), macOS (`.command`), and Linux (`.sh`) installers with automatic POSIX `node` lookup and VS Code Insiders support.
-- **`data-terminal` dashboard redesign:** Eliminated redundant card padding and blank voids in favor of a tight hairline-ruled interface supporting light/dark companion themes and `--vscode-*` editor inheritance.
-
-## Reliability & audit fixes
-
-Fixed `pollInstance` `previousStepCounts` tracking during `new-thread` early returns and running peer daily usage recording, updated companion `SHIM` to pull immediately after `POST /api/command`, preserved badge density across conversation switches (`VERSION = 21`), used `selectedModelId` in active quota warnings, fixed standby status misreporting (`disconnected`), preserved cached conversation analysis on focus/pinning, fixed Windows installer `/api/health` preflight and `$PSScriptRoot` binding, and removed unused helpers.
+- **Forward-compatible quota pools & tie-breaking:** Resolves multi-pool quota identities dynamically from pool descriptions (`Models within this group: ...`), dedicated-pool tokens, family matching, and window aliases (`7d`/`week`, `five_hour`/`5_hour`/`5-hour`/`session`), disambiguating pools that share `100%` weekly resets (such as `Claude and GPT models` vs `Gemini 4 Argon`).
+- **Dynamic model catalog & slug humanization:** Adds fallback metadata for `M532`..`M535` (`Gemini 4 Neon`), `M537` (`Orchestrator (Neon)`), and `M578` (`Gemini 4 Hydrogen Sonar`), automatically humanizes raw slugs (e.g. `gemini-4-hydrogen-sonar` -> `Gemini 4 Hydrogen Sonar`), supports expanded field aliases and name-based pricing fallback, raises the model row cap to `64`, and retries partial account refreshes with `10s` backoff.
+- **Schema, binary & DevTools bridge resilience:** Reads `metadata.requestedModel.model`, future step types with `metadata.modelUsage`, alternate token field names, bare `RUNNING`/`IDLE` statuses, renamed backend binaries (`cortex_server*`, `antigravity_server*`), and updated CDP badge attachment (`VERSION = 24`: `127.0.0.1:9222` fallback probe, semantic `Turbo`/model-button & `Ask` fallbacks, dashboard badge status + 1-click **Relaunch Antigravity with badge** control, `"Antigravity (with Monitor)"` Start Menu shortcut, clean upgrade replacement, and normalized ZIP forward-slash headers) including VS Code Insiders.
+- **Dashboard & inline motion upgrades:** Refines dark/light `data-terminal` contrast (`#0e1014` ground, `#0b5ed7` light accent), adds a sliding `#tab-indicator`, `scaleX` gauges with ruler ticks, Settings tactile `.switch` toggles, interactive `Daily usage` hover/focus readout, topbar `Copy` button, inline card/pill transitions, and `prefers-reduced-motion` support.
 
 ## Install
 
-Platform-specific universal packages (**Antigravity-Monitor-1.1.0-windows.zip**, **Antigravity-Monitor-1.1.0-macos.zip**, **Antigravity-Monitor-1.1.0-linux.zip**) and the combined **Antigravity-Monitor-1.1.0-companion.zip** include the runtime, **antigravity-monitor-1.1.0.vsix**, and native installers (`Install Antigravity Monitor.exe` / `.cmd`, `Install Antigravity Monitor.command`, `Install Antigravity Monitor.sh`) with executable permissions preserved for macOS/Linux. Node.js 22+ is required. Compare hashes against `SHA256SUMS.txt` before installation.
+Platform-specific universal packages (**Antigravity-Monitor-1.2.0-windows.zip**, **Antigravity-Monitor-1.2.0-macos.zip**, **Antigravity-Monitor-1.2.0-linux.zip**) and the combined **Antigravity-Monitor-1.2.0-companion.zip** include the runtime, **antigravity-monitor-1.2.0.vsix**, and native installers (`Install Antigravity Monitor.exe` / `.cmd`, `Install Antigravity Monitor.command`, `Install Antigravity Monitor.sh`) with executable permissions preserved for macOS/Linux. Node.js 22+ is required. Compare hashes against `SHA256SUMS.txt` before installation.
+
+## Things to notice
+
+- **Inline composer snippet requires a DevTools launch:** Desktop Antigravity displays the snippet pill to the left of `Turbo` only when launched with `--remote-debugging-port=9222`. In-app **Reload** (`Ctrl+R`), plain Antigravity shortcuts, and Antigravity auto-updates (`--updated`) keep DevTools disabled. Click **Relaunch Antigravity with badge** in the Overview notice on **http://127.0.0.1:4599**, or open **Antigravity (with Monitor)** from the Windows Start Menu.
+- **Clean upgrades & backups:** Running the installer preserves `state.json`, backs up prior runtime and config files, cleans replaced `out/src`, `tools`, and `media` folders before copying `v1.2.0`, and installs `antigravity-monitor-1.2.0.vsix` (reload open Antigravity IDE / VS Code windows afterward).
+- **Unsigned packages & checksums:** Verify downloaded archives against `SHA256SUMS.txt` before extracting or running.
 
 ## Verification and limits
 
-Windows verification includes compilation, **214** passing unit/integration tests, `lint.mjs --app` (`0 FAIL`), rebuilt Windows launcher verification, headless dark/light browser screenshots across all 4 tabs, live `Antigravity.exe` backend verification, and local Windows installation. **Native macOS and Linux runtime execution remain unverified** without native hardware runs.
+Windows verification includes compilation, **214** passing unit/integration tests, `npm audit` (`0` vulnerabilities), rebuilt Windows launcher verification (`v1.2.0` metadata), live `Antigravity.exe 2.33.0` backend telemetry (`24` picker models) and live Electron CDP inline snippet attachment (`attached: 1`, `probedPages: 5`), `16` WCAG AA contrast checks (`>= 4.96:1`), and headless Chrome interactive verification across desktop/companion/mobile dark and light views. **Native macOS and Linux runtime execution remain unverified** on physical hardware.

@@ -182,7 +182,11 @@ export function toBackendTargets(processes: readonly RawProcess[]): DiscoveryRes
 
     const appDataDir = flags.get('app_data_dir') ?? null;
     const hubPort = parsePort(flags.get('hub-port') ?? flags.get('hub_port'));
-    const isLegacyName = name.startsWith('language_server');
+    const httpsPort = parsePort(flags.get('https_server_port') ?? flags.get('https-server-port'));
+    const isLegacyName =
+      name.startsWith('language_server') ||
+      name.startsWith('cortex_server') ||
+      name.startsWith('antigravity_server');
     const owner: BackendOwner =
       process.owner && process.owner !== 'unknown' ? process.owner : inferOwner(process.name ?? '');
 
@@ -201,14 +205,13 @@ export function toBackendTargets(processes: readonly RawProcess[]): DiscoveryRes
       continue;
     }
 
-    if (!isLegacyName) {
+    if (!isLegacyName && httpsPort === null) {
       if (flags.has('hub')) {
         notes.push(`pid ${process.pid} advertises a hub role without a usable --hub-port`);
       }
       continue;
     }
 
-    const httpsPort = parsePort(flags.get('https_server_port') ?? flags.get('https-server-port'));
     const ports: Array<{ port: number; scheme: 'http' | 'https' }> = [];
     if (httpsPort !== null) {
       ports.push({ port: httpsPort, scheme: 'https' });
@@ -276,14 +279,14 @@ export function windowsDiscoveryScript(): string {
     '  while ($cur -and $depth -lt 8) {',
     '    $proc = $byId[[string]$cur];',
     '    if (-not $proc) { return "unknown" }',
-    '    if ($proc.Name -eq "Antigravity IDE.exe") { return "ide" }',
-    '    if ($proc.Name -eq "Antigravity.exe") { return "app" }',
-    '    if ($proc.Name -eq "Code.exe" -or $proc.Name -eq "Code - Insiders.exe") { return "vscode" }',
+    '    if ($proc.Name -like "Antigravity*IDE*") { return "ide" }',
+    '    if ($proc.Name -like "Antigravity*") { return "app" }',
+    '    if ($proc.Name -like "Code*") { return "vscode" }',
     '    $cur = $proc.ParentProcessId; $depth++;',
     '  }',
     '  return "unknown"',
     '}',
-    '$procs = $all | Where-Object { $_.Name -like "agy*" -or $_.Name -like "language_server*" };',
+    '$procs = $all | Where-Object { $_.Name -like "agy*" -or $_.Name -like "language_server*" -or $_.Name -like "cortex_server*" -or $_.Name -like "antigravity_server*" };',
     '$result = @();',
     'foreach ($p in $procs) {',
     '  $ports = @(Get-NetTCPConnection -OwningProcess $p.ProcessId -State Listen -ErrorAction SilentlyContinue |',
@@ -306,13 +309,13 @@ export function posixDiscoveryScript(): string {
       END {
         for (pid in executable) {
           name=executable[pid]; sub("^.*/", "", name);
-          if (name !~ /^agy([._-].*)?$/ && name !~ /^language_server/) continue;
+          if (name !~ /^(agy|language_server|cortex_server|antigravity_server)([._-].*)?$/) continue;
           owner="unknown"; current=pid;
           for (depth=0; current && depth<12; depth++) {
             ancestor=tolower(executable[current]); base=ancestor; sub("^.*/", "", base);
             if (ancestor ~ /antigravity[ -]ide/ || ancestor ~ /antigravityide/) { owner="ide"; break; }
-            if (ancestor ~ /visual studio code/ || base ~ /^(code|code-insiders)$/) { owner="vscode"; break; }
-            if (ancestor ~ /antigravity[.]app[/]/ || base == "antigravity") { owner="app"; break; }
+            if (ancestor ~ /visual studio code/ || base ~ /^code([ .-]|$)/) { owner="vscode"; break; }
+            if (ancestor ~ /antigravity[.]app[/]/ || base ~ /^antigravity/) { owner="app"; break; }
             current=parent[current];
           }
           printf "%s\\t%s\\t%s\\n", pid, owner, name;
