@@ -36,11 +36,11 @@ Download the archive for your OS (**Antigravity-Monitor-1.2.0-windows.zip**, **A
 
 | Platform | Install from the extracted folder | Startup |
 |---|---|---|
-| **Windows** | Open **Install Antigravity Monitor.exe** (or `.cmd`). | Current user Startup shortcut, Run registry entry, **Antigravity (with Monitor)** Start Menu shortcut, and VS Code / Antigravity IDE / Insiders VSIX. |
+| **Windows** | Open **Install Antigravity Monitor.exe** (or `.cmd`). | Current user Startup shortcut, Run registry entry, `AntigravityMonitor` sign-in Scheduled Task (auto-restarts on failure), **Antigravity (with Monitor)** Start Menu shortcut, and VS Code / Antigravity IDE / Insiders VSIX. |
 | **macOS** | Double-click **Install Antigravity Monitor.command** or run `sh "Install Antigravity Monitor.command"`. | Auto-locates `node` (Homebrew, nvm, fnm, volta), sets LaunchAgent, installs editor VSIX. |
 | **Linux** | Run `./"Install Antigravity Monitor.sh"` (or `sh "Install Antigravity Monitor.sh"`). | Auto-locates `node`, adds XDG autostart + desktop app entry, installs editor VSIX. |
 
-Open Antigravity normally. The companion stays separate from the app and reconnects when its local backend and DevTools endpoint become available. The dashboard is at **http://127.0.0.1:4599**. Installers also install the included VSIX into supported editor CLIs they find; reload editor windows afterward.
+Open Antigravity normally. The companion starts automatically when you sign in, stays separate from the app, watches for Antigravity updates and DevTools endpoints so it refreshes telemetry, model catalogs, and shortcuts simultaneously, and reconnects whenever the local backend restarts. The dashboard is at **http://127.0.0.1:4599**. Installers also install the included VSIX into supported editor CLIs they find; reload editor windows afterward.
 
 **Windows has been tested locally. macOS and Linux implementations include discovery, storage, installers, and startup integration; native platform acceptance remains pending.** Linux needs `ps` and either `lsof` or `ss` for socket discovery, plus `xdg-open` to launch the dashboard. macOS uses `ps`, `lsof`, `open`, and `launchctl`.
 

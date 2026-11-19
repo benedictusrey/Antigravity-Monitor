@@ -22,7 +22,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { BadgeInjector, devtoolsEndpoints, parsePortList } from './cdp-badge.mjs';
-import { openCommand } from './platform.mjs';
+import { antigravityInstallCandidates, applyAppUpdateCheck, openCommand, readAntigravityBuild } from './platform.mjs';
 import { loadState, mergeConfig, sanitiseBuckets, saveState, serialiseBuckets, statePath } from './state.mjs';
 
 const require = createRequire(import.meta.url);
@@ -90,6 +90,8 @@ const stateFile = statePath();
 const stored = loadState(stateFile);
 const config = mergeConfig(CONFIG_DEFAULTS, stored.config);
 const buckets = sanitiseBuckets(stored.buckets);
+let knownAppBuild = stored.appBuild ?? null;
+let appUpdate = null;
 let latest = null;
 
 let saveTimer = null;
@@ -110,6 +112,7 @@ function flushState() {
       config,
       buckets: serialiseBuckets(buckets),
       limits: null,
+      appBuild: knownAppBuild,
     });
   } catch (error) {
     console.error(`[state] could not save: ${error.message}`);
@@ -313,7 +316,10 @@ const server = http.createServer((request, response) => {
     const badgeStatus = badge
       ? { ...badge.getStatus(), relaunching }
       : { state: 'disabled', attached: 0, reachablePorts: 0, probedPages: 0, relaunching: false };
-    sendJson(response, 200, { snapshot: latest ? { ...latest, badge: badgeStatus } : null });
+    if (badgeStatus.state === 'attached') {
+      appUpdate = null;
+    }
+    sendJson(response, 200, { snapshot: latest ? { ...latest, badge: badgeStatus, appUpdate } : null });
     return;
   }
 
@@ -408,6 +414,55 @@ server.on('error', async (error) => {
 
 const watchers = [];
 let wakeTimer = null;
+let updateTimer = null;
+let updatePollInterval = null;
+
+function refreshWindowsMonitorShortcuts(exePath) {
+  if (process.platform !== 'win32' || !exePath) return;
+  const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const scriptPath = path.join(root, 'tools', 'install-windows.ps1');
+  execFile(
+    ps,
+    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', scriptPath, '-RefreshShortcuts', '-AntigravityExe', exePath],
+    { windowsHide: true },
+    () => {},
+  );
+}
+
+function checkAntigravityUpdate(reason = 'poll') {
+  const current = readAntigravityBuild();
+  const result = applyAppUpdateCheck(knownAppBuild, appUpdate, current);
+  if (result.knownBuild !== knownAppBuild) {
+    knownAppBuild = result.knownBuild;
+    scheduleSave();
+  }
+  appUpdate = result.notice;
+  if (result.notify) {
+    console.log(
+      `[app] Antigravity updated (${result.previousVersion ?? 'previous'} -> ${result.version ?? 'new'}) via ${reason}; refreshing monitor & badge.`,
+    );
+    monitor.refreshNow();
+    badge?.wake();
+    if (current?.exePath) {
+      refreshWindowsMonitorShortcuts(current.exePath);
+    }
+  } else if (result.settle) {
+    monitor.nudgeDiscovery();
+    badge?.wake();
+  }
+}
+
+function scheduleUpdateCheck(reason, delayMs = 1500) {
+  if (updateTimer) clearTimeout(updateTimer);
+  updateTimer = setTimeout(() => {
+    updateTimer = null;
+    checkAntigravityUpdate(reason);
+    monitor.nudgeDiscovery();
+    badge?.wake();
+  }, delayMs);
+  updateTimer.unref?.();
+}
+
 function watchAntigravityLaunch() {
   const dirs = new Set(devtoolsEndpoints().map((entry) => path.dirname(entry.file)));
   for (const dir of dirs) {
@@ -418,6 +473,7 @@ function watchAntigravityLaunch() {
         if (wakeTimer) clearTimeout(wakeTimer);
         wakeTimer = setTimeout(() => {
           wakeTimer = null;
+          checkAntigravityUpdate('devtools');
           monitor.nudgeDiscovery();
           badge?.wake();
         }, 300);
@@ -429,6 +485,21 @@ function watchAntigravityLaunch() {
       // Directory missing or watch unsupported; discovery polling still runs.
     }
   }
+
+  const installDirs = new Set(
+    antigravityInstallCandidates()
+      .map((candidate) => (process.platform === 'darwin' ? candidate : path.dirname(candidate)))
+      .filter((dir) => fs.existsSync(dir)),
+  );
+  for (const dir of installDirs) {
+    try {
+      const watcher = fs.watch(dir, () => scheduleUpdateCheck('watch'));
+      watcher.on('error', () => {});
+      watchers.push(watcher);
+    } catch {
+      // Fall back to periodic build check below.
+    }
+  }
 }
 
 server.listen(port, '127.0.0.1', () => {
@@ -438,6 +509,9 @@ server.listen(port, '127.0.0.1', () => {
   console.log(`  badge: ${badge ? 'looking for a renderer' : 'disabled'}`);
   console.log('  Ctrl+C to stop.');
   watchAntigravityLaunch();
+  checkAntigravityUpdate('startup');
+  updatePollInterval = setInterval(() => checkAntigravityUpdate('timer'), 15_000);
+  updatePollInterval.unref?.();
   monitor.start();
   if (shouldOpen) {
     openWindow(url);
@@ -448,6 +522,14 @@ function shutdown() {
   if (wakeTimer) {
     clearTimeout(wakeTimer);
     wakeTimer = null;
+  }
+  if (updateTimer) {
+    clearTimeout(updateTimer);
+    updateTimer = null;
+  }
+  if (updatePollInterval) {
+    clearInterval(updatePollInterval);
+    updatePollInterval = null;
   }
   for (const watcher of watchers) {
     try { watcher.close(); } catch {}

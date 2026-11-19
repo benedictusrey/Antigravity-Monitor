@@ -125,3 +125,23 @@ test('refreshAccountIfDue keeps picker data when GetAvailableModels fails and re
   assert.ok(Date.now() - internal.lastStatusRefresh >= 40_000, 'partial failure shortens retry cooldown');
   monitor.stop();
 });
+
+test('applyDiscovered resets catalog cooldown when a backend PID or port replaces the focused instance', () => {
+  const { monitor, internal } = setup();
+  const baseTarget = {
+    id: 'slow', pid: 1001, port: 50060, owner: 'app', workspace: null, protocol: 'http', csrfToken: null,
+  };
+  const baseStatus = { id: 'slow', reachable: true, owner: 'app', conversationCount: 1, runningCount: 0, lastActivityMs: 0, failureReason: null };
+  internal.applyDiscovered([baseTarget], [baseStatus]);
+  const stableAt = Date.now();
+  internal.lastStatusRefresh = stableAt;
+
+  // Steady-state re-discovery keeps the cached catalog cooldown intact.
+  internal.applyDiscovered([baseTarget], [baseStatus]);
+  assert.equal(internal.lastStatusRefresh, stableAt);
+
+  // An Antigravity restart/update changes the backend PID and must refresh immediately.
+  internal.applyDiscovered([{ ...baseTarget, pid: 2002, port: 50099 }], [baseStatus]);
+  assert.equal(internal.lastStatusRefresh, 0);
+  monitor.stop();
+});

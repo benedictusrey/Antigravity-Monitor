@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -39,6 +40,7 @@ test('autostart documents preserve spaces and escape XML or desktop field codes'
   assert.match(mac, /Node &amp; Tools/);
   assert.match(mac, /<string>\/Users\/Test User\/app\/tools\/monitor-server.mjs<\/string>/);
   assert.match(mac, /<key>RunAtLoad<\/key><true\/>/);
+  assert.match(mac, /<key>ThrottleInterval<\/key><integer>5<\/integer>/);
   const linux = startupDocument('linux', '/opt/node bin/node', '/home/100% Test/app', '/state');
   assert.match(linux, /Exec="\/opt\/node bin\/node" "\/home\/100%% Test\/app\/tools\/monitor-server.mjs" --no-open/);
   assert.match(linux, /Terminal=false/);
@@ -85,6 +87,86 @@ test('POSIX installer rejects missing explicit --vsix and cleans Linux desktop e
     assert.equal(fs.existsSync(desktopApp), false);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity build detector reads install binaries and handles multi-file updates', async () => {
+  const { antigravityInstallCandidates, applyAppUpdateCheck, detectAntigravityUpdate, readAntigravityBuild } = await load('platform.mjs');
+  const winCandidates = antigravityInstallCandidates({ LOCALAPPDATA: 'C:\\Local', ProgramFiles: 'C:\\Program Files' }, 'win32', 'C:\\Users\\test');
+  assert.equal(winCandidates[0], 'C:\\Local\\Programs\\antigravity\\Antigravity.exe');
+  const macCandidates = antigravityInstallCandidates({}, 'darwin', '/Users/test');
+  assert.equal(macCandidates[0], '/Applications/Antigravity.app');
+
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agm-app-update-'));
+  try {
+    const exe = path.join(tempRoot, 'Antigravity.exe');
+    const ver = path.join(tempRoot, 'version');
+    fs.writeFileSync(exe, 'v1-binary');
+    fs.writeFileSync(ver, '44.9.1\n');
+    const firstBuild = readAntigravityBuild([exe], 'win32');
+    assert.equal(firstBuild?.version, '44.9.1');
+
+    const initialCheck = detectAntigravityUpdate(null, firstBuild);
+    assert.equal(initialCheck.changed, false);
+    assert.equal(initialCheck.next?.version, '44.9.1');
+
+    const sameCheck = detectAntigravityUpdate(initialCheck.next, readAntigravityBuild([exe], 'win32'));
+    assert.equal(sameCheck.changed, false);
+
+    // Step 1 of multi-file update: version file changes before binary finishes swapping.
+    fs.writeFileSync(ver, '45.0.0\n');
+    const partialBuild = readAntigravityBuild([exe], 'win32');
+    const step1 = applyAppUpdateCheck(initialCheck.next, null, partialBuild, 1000);
+    assert.equal(step1.notify, true);
+    assert.equal(step1.notice?.previousVersion, '44.9.1');
+    assert.equal(step1.notice?.version, '45.0.0');
+
+    // Step 2: binary replacement lands right after; must keep original previousVersion and avoid duplicate notification.
+    fs.writeFileSync(exe, 'v2-updated-binary-longer');
+    const step2 = applyAppUpdateCheck(step1.knownBuild, step1.notice, readAntigravityBuild([exe], 'win32'), 2000);
+    assert.equal(step2.notify, false);
+    assert.equal(step2.settle, true);
+    assert.equal(step2.notice?.previousVersion, '44.9.1');
+    assert.equal(step2.notice?.version, '45.0.0');
+
+    // Once previous notice cleared (badge attached), a hotfix with the same version still notifies once.
+    fs.writeFileSync(exe, 'v2-hotfix-binary-even-longer');
+    const step3 = applyAppUpdateCheck(step2.knownBuild, null, readAntigravityBuild([exe], 'win32'), 3000);
+    assert.equal(step3.notify, true);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Windows startup helper and installer configure fallback Node resolution, Scheduled Task, shortcuts, and valid PowerShell syntax', () => {
+  const root = path.resolve(__dirname, '..', '..');
+  const starterFile = path.join(root, 'tools', 'start-companion.ps1');
+  const installerFile = path.join(root, 'tools', 'install-windows.ps1');
+  const starter = fs.readFileSync(starterFile, 'utf8');
+  const installer = fs.readFileSync(installerFile, 'utf8');
+  assert.match(starter, /Get-Command node\.exe/);
+  assert.match(starter, /\[switch\]\$Supervise/);
+  assert.match(installer, /\[switch\]\$Uninstall/);
+  assert.match(installer, /\[switch\]\$RefreshShortcuts/);
+  assert.match(installer, /Save-MonitorLaunchShortcuts/);
+  assert.match(installer, /Register-ScheduledTask/);
+  assert.match(installer, /-Supervise/);
+  assert.match(installer, /-RestartCount 3/);
+  if (process.platform === 'win32') {
+    const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    for (const file of [starterFile, installerFile]) {
+      const escaped = file.replace(/'/g, "''");
+      const output = execFileSync(
+        ps,
+        [
+          '-NoProfile',
+          '-Command',
+          `$errors = $null; $null = [System.Management.Automation.Language.Parser]::ParseFile('${escaped}', [ref]$null, [ref]$errors); if ($errors.Count) { throw ($errors | Out-String) }`,
+        ],
+        { encoding: 'utf8' },
+      );
+      assert.equal(output.trim(), '');
+    }
   }
 });
 
@@ -136,5 +218,85 @@ test('setZipUnixPermissions writes UNIX creator, 0755 modes, and forward slashes
     assert.equal(patched.subarray(secondOffset + 46, secondOffset + 46 + nameB.length).toString('utf8'), 'dir/README.md');
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity build detector reads install binaries and handles multi-file updates', async () => {
+  const { antigravityInstallCandidates, applyAppUpdateCheck, detectAntigravityUpdate, readAntigravityBuild } = await load('platform.mjs');
+  const winCandidates = antigravityInstallCandidates({ LOCALAPPDATA: 'C:\\Local', ProgramFiles: 'C:\\Program Files' }, 'win32', 'C:\\Users\\test');
+  assert.equal(winCandidates[0], 'C:\\Local\\Programs\\antigravity\\Antigravity.exe');
+  const macCandidates = antigravityInstallCandidates({}, 'darwin', '/Users/test');
+  assert.equal(macCandidates[0], '/Applications/Antigravity.app');
+
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agm-app-update-'));
+  try {
+    const exe = path.join(tempRoot, 'Antigravity.exe');
+    const ver = path.join(tempRoot, 'version');
+    fs.writeFileSync(exe, 'v1-binary');
+    fs.writeFileSync(ver, '44.9.1\n');
+    const firstBuild = readAntigravityBuild([exe], 'win32');
+    assert.equal(firstBuild?.version, '44.9.1');
+
+    const initialCheck = detectAntigravityUpdate(null, firstBuild);
+    assert.equal(initialCheck.changed, false);
+    assert.equal(initialCheck.next?.version, '44.9.1');
+
+    const sameCheck = detectAntigravityUpdate(initialCheck.next, readAntigravityBuild([exe], 'win32'));
+    assert.equal(sameCheck.changed, false);
+
+    // Step 1 of multi-file update: version file changes before binary finishes swapping.
+    fs.writeFileSync(ver, '45.0.0\n');
+    const partialBuild = readAntigravityBuild([exe], 'win32');
+    const step1 = applyAppUpdateCheck(initialCheck.next, null, partialBuild, 1000);
+    assert.equal(step1.notify, true);
+    assert.equal(step1.notice?.previousVersion, '44.9.1');
+    assert.equal(step1.notice?.version, '45.0.0');
+
+    // Step 2: binary replacement lands right after; must keep original previousVersion and avoid duplicate notification.
+    fs.writeFileSync(exe, 'v2-updated-binary-longer');
+    const step2 = applyAppUpdateCheck(step1.knownBuild, step1.notice, readAntigravityBuild([exe], 'win32'), 2000);
+    assert.equal(step2.notify, false);
+    assert.equal(step2.settle, true);
+    assert.equal(step2.notice?.previousVersion, '44.9.1');
+    assert.equal(step2.notice?.version, '45.0.0');
+
+    // Once previous notice cleared (badge attached), a hotfix with the same version still notifies once.
+    fs.writeFileSync(exe, 'v2-hotfix-binary-even-longer');
+    const step3 = applyAppUpdateCheck(step2.knownBuild, null, readAntigravityBuild([exe], 'win32'), 3000);
+    assert.equal(step3.notify, true);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Windows startup helper and installer configure fallback Node resolution, Scheduled Task, shortcuts, and valid PowerShell syntax', () => {
+  const root = path.resolve(__dirname, '..', '..');
+  const starterFile = path.join(root, 'tools', 'start-companion.ps1');
+  const installerFile = path.join(root, 'tools', 'install-windows.ps1');
+  const starter = fs.readFileSync(starterFile, 'utf8');
+  const installer = fs.readFileSync(installerFile, 'utf8');
+  assert.match(starter, /Get-Command node\.exe/);
+  assert.match(starter, /\[switch\]\$Supervise/);
+  assert.match(installer, /\[switch\]\$Uninstall/);
+  assert.match(installer, /\[switch\]\$RefreshShortcuts/);
+  assert.match(installer, /Save-MonitorLaunchShortcuts/);
+  assert.match(installer, /Register-ScheduledTask/);
+  assert.match(installer, /-Supervise/);
+  assert.match(installer, /-RestartCount 3/);
+  if (process.platform === 'win32') {
+    const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    for (const file of [starterFile, installerFile]) {
+      const escaped = file.replace(/'/g, "''");
+      const output = execFileSync(
+        ps,
+        [
+          '-NoProfile',
+          '-Command',
+          `$errors = $null; $null = [System.Management.Automation.Language.Parser]::ParseFile('${escaped}', [ref]$null, [ref]$errors); if ($errors.Count) { throw ($errors | Out-String) }`,
+        ],
+        { encoding: 'utf8' },
+      );
+      assert.equal(output.trim(), '');
+    }
   }
 });

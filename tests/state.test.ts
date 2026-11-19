@@ -72,6 +72,7 @@ test('state round-trips through disk', async () => {
     config: { displayMode: 'custom', snippetWeekly: true, snippetFiveHour: true, snippetModel: false },
     buckets: { '2026-11-02|MODEL_X': { input: 1, cacheRead: 2, cacheCreate: 0, output: 3 } },
     limits: { weekly: { percent: 80, resetText: '6d 15h' }, readAt: 1_760_000_000_000 },
+    appBuild: { version: '44.9.1', signature: '44.9.1:1700000:12345' },
   });
   const loaded = loadState(file);
 
@@ -82,6 +83,7 @@ test('state round-trips through disk', async () => {
   assert.equal(loaded.config.snippetModel, false);
   assert.equal(loaded.buckets['2026-11-02|MODEL_X'].output, 3);
   assert.equal(loaded.limits.weekly.percent, 80, 'weekly survives a restart');
+  assert.deepEqual(loaded.appBuild, { version: '44.9.1', signature: '44.9.1:1700000:12345' });
 
   // Atomic write: the temp file must not survive.
   assert.deepEqual(fs.readdirSync(dir), ['state.json']);
@@ -95,8 +97,8 @@ test('a missing or corrupt file yields empty state instead of throwing', async (
   const corrupt = path.join(dir, 'corrupt.json');
   fs.writeFileSync(corrupt, '{"version": 99, "config": {"displayMode": "essentials"}}');
 
-  assert.deepEqual(loadState(path.join(dir, 'missing.json')), { version: 1, config: {}, buckets: {}, limits: null });
-  assert.deepEqual(loadState(corrupt), { version: 1, config: {}, buckets: {}, limits: null }, 'future version ignored');
+  assert.deepEqual(loadState(path.join(dir, 'missing.json')), { version: 1, config: {}, buckets: {}, limits: null, appBuild: null });
+  assert.deepEqual(loadState(corrupt), { version: 1, config: {}, buckets: {}, limits: null, appBuild: null }, 'future version ignored');
 
   fs.rmSync(dir, { recursive: true, force: true });
 });

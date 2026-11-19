@@ -537,6 +537,7 @@
     return [
       snapshot.status,
       snapshot.badge,
+      snapshot.appUpdate,
       state.confirmRelaunch,
       quotaView(snapshot), Math.floor(Date.now() / 60000),
       snapshot.lastError,
@@ -596,7 +597,9 @@
         ? 'Relaunching Antigravity desktop with --remote-debugging-port=9222. The composer badge will attach once the window finishes loading.'
         : snapshot.badge.state === 'no-composer'
           ? 'Inline composer badge could not match Antigravity composer selectors (' + snapshot.badge.probedPages + ' target(s) inspected). Dashboard telemetry remains live here.'
-          : 'Inline composer badge is inactive: Antigravity desktop was launched without --remote-debugging-port=9222. Relaunch via "Antigravity (with Monitor)" or use the button below.';
+          : snapshot.appUpdate
+            ? 'Antigravity updated' + (snapshot.appUpdate.version ? ' to v' + snapshot.appUpdate.version : '') + ' and restarted without --remote-debugging-port=9222. Telemetry is live; relaunch with badge to restore the inline composer pill.'
+            : 'Inline composer badge is inactive: Antigravity desktop was launched without --remote-debugging-port=9222. Relaunch via "Antigravity (with Monitor)" or use the button below.';
       const noticeNodes = [el('div', { text: msg })];
       if (snapshot.badge.state === 'no-devtools') {
         if (snapshot.badge.relaunching) {

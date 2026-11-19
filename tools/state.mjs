@@ -25,17 +25,24 @@ export function statePath(env = process.env, platform = process.platform, home =
 }
 
 export function loadState(file) {
-  const empty = { version: VERSION, config: {}, buckets: {}, limits: null };
+  const empty = { version: VERSION, config: {}, buckets: {}, limits: null, appBuild: null };
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!parsed || parsed.version !== VERSION) {
       return empty;
     }
+    const appBuild = isRecord(parsed.appBuild) && typeof parsed.appBuild.signature === 'string'
+      ? {
+          version: typeof parsed.appBuild.version === 'string' ? parsed.appBuild.version : null,
+          signature: parsed.appBuild.signature,
+        }
+      : null;
     return {
       version: VERSION,
       config: isRecord(parsed.config) ? parsed.config : {},
       buckets: isRecord(parsed.buckets) ? parsed.buckets : {},
       limits: parsed.limits ?? null,
+      appBuild,
     };
   } catch {
     return empty;
@@ -51,6 +58,7 @@ export function saveState(file, state) {
     config: state.config ?? {},
     buckets: state.buckets ?? {},
     limits: state.limits ?? null,
+    appBuild: state.appBuild ?? null,
   });
   fs.writeFileSync(temp, payload, { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(temp, file);

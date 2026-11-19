@@ -739,43 +739,7 @@ export class Monitor {
       const scanned = await this.scanTargets(targets);
       if (this.disposed || generation !== this.generation) return;
       const statuses = dedupeBackends(scanned);
-      this.statuses = new Map(statuses.map((status) => [status.id, status]));
-
-      const present = new Set(targets.map((target) => target.id));
-      for (const id of [...this.instances.keys()]) {
-        if (!present.has(id)) {
-          this.instances.delete(id);
-          this.quotas.delete(id);
-          this.quotaRetries.delete(id);
-        }
-      }
-
-      for (const status of statuses) {
-        const target = targets.find((candidate) => candidate.id === status.id);
-        if (!target) {
-          continue;
-        }
-        const existing = this.instances.get(status.id);
-        if (existing) {
-          existing.target = target;
-          existing.status = status;
-          if (!status.reachable) {
-            existing.retryAt = Date.now() + 15_000;
-          }
-        } else {
-          this.instances.set(status.id, {
-            target,
-            status,
-            conversations: [],
-            activeConversationId: null,
-            observedConversationId: null,
-            previousStepCounts: new Map(),
-            retryAt: status.reachable ? 0 : Date.now() + 15_000,
-          });
-        }
-      }
-
-      this.chooseFocus();
+      this.applyDiscovered(targets, statuses);
       if (this.focusTargetId) {
         const status = this.statuses.get(this.focusTargetId);
         this.deps.logger(
@@ -787,6 +751,56 @@ export class Monitor {
       }
     } finally {
       this.discovering = false;
+    }
+  }
+
+  private applyDiscovered(targets: readonly BackendTarget[], statuses: readonly BackendStatus[]): void {
+    this.statuses = new Map(statuses.map((status) => [status.id, status]));
+
+    const present = new Set(targets.map((target) => target.id));
+    for (const id of [...this.instances.keys()]) {
+      if (!present.has(id)) {
+        this.instances.delete(id);
+        this.quotas.delete(id);
+        this.quotaRetries.delete(id);
+      }
+    }
+
+    const previousFocus = this.focusTargetId;
+    let backendTopologyChanged = false;
+    for (const status of statuses) {
+      const target = targets.find((candidate) => candidate.id === status.id);
+      if (!target) {
+        continue;
+      }
+      const existing = this.instances.get(status.id);
+      if (existing) {
+        if (existing.target.pid !== target.pid || existing.target.port !== target.port) {
+          backendTopologyChanged = true;
+        }
+        existing.target = target;
+        existing.status = status;
+        if (!status.reachable) {
+          existing.retryAt = Date.now() + 15_000;
+        }
+      } else {
+        backendTopologyChanged = true;
+        this.instances.set(status.id, {
+          target,
+          status,
+          conversations: [],
+          activeConversationId: null,
+          observedConversationId: null,
+          previousStepCounts: new Map(),
+          retryAt: status.reachable ? 0 : Date.now() + 15_000,
+        });
+      }
+    }
+
+    this.chooseFocus();
+    if ((backendTopologyChanged || (this.focusTargetId && this.focusTargetId !== previousFocus)) && this.focusTargetId) {
+      this.lastStatusRefresh = 0;
+      this.refreshQuotaNow();
     }
   }
 
