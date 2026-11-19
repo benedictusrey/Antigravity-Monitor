@@ -97,16 +97,14 @@ function readPackageVersion(pkgFile) {
 }
 
 export function readAntigravityBuild(candidates = antigravityInstallCandidates(), platform = process.platform) {
-  const join = platform === 'win32' ? path.win32.join : path.posix.join;
-  const dirname = platform === 'win32' ? path.win32.dirname : path.posix.dirname;
   for (const candidate of candidates) {
     try {
       const stat = fs.statSync(candidate);
-      if (platform === 'darwin' && stat.isDirectory()) {
-        const plist = join(candidate, 'Contents', 'Info.plist');
-        const bin = [join(candidate, 'Contents', 'MacOS', 'Antigravity'), join(candidate, 'Contents', 'MacOS', 'Electron')]
+      if ((platform === 'darwin' || candidate.endsWith('.app')) && stat.isDirectory()) {
+        const plist = path.join(candidate, 'Contents', 'Info.plist');
+        const bin = [path.join(candidate, 'Contents', 'MacOS', 'Antigravity'), path.join(candidate, 'Contents', 'MacOS', 'Electron')]
           .find((file) => fs.existsSync(file));
-        const version = readPlistVersion(plist) ?? readPackageVersion(join(candidate, 'Contents', 'Resources', 'app', 'package.json'));
+        const version = readPlistVersion(plist) ?? readPackageVersion(path.join(candidate, 'Contents', 'Resources', 'app', 'package.json'));
         const refStat = bin ? fs.statSync(bin) : fs.existsSync(plist) ? fs.statSync(plist) : stat;
         if (!version && !bin) continue;
         return {
@@ -117,9 +115,9 @@ export function readAntigravityBuild(candidates = antigravityInstallCandidates()
         };
       }
       if (!stat.isFile()) continue;
-      const appRoot = dirname(candidate);
-      const versionLine = readShortText(join(appRoot, 'version'))?.split(/\r?\n/, 1)[0]?.trim() || null;
-      const version = versionLine ?? readPackageVersion(join(appRoot, 'resources', 'app', 'package.json'));
+      const appRoot = path.dirname(candidate);
+      const versionLine = readShortText(path.join(appRoot, 'version'))?.split(/\r?\n/, 1)[0]?.trim() || null;
+      const version = versionLine ?? readPackageVersion(path.join(appRoot, 'resources', 'app', 'package.json'));
       return {
         appRoot,
         exePath: candidate,
