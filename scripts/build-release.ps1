@@ -13,7 +13,7 @@ foreach ($scriptName in @('Install Antigravity Monitor.sh','Install Antigravity 
     $raw = [IO.File]::ReadAllText((Join-Path $projectRoot $scriptName))
     if ($raw.Contains("`r`n")) { throw "POSIX script must use LF line endings: $scriptName" }
 }
-foreach ($required in @($vsix,'out\src\app\monitor.js','out\src\core\quota.js','media\icon.png','media\icon.ico','media\icon.icns','Antigravity Monitor.exe','Install Antigravity Monitor.exe','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh','assets\banners\antigravity-monitor-hero.png','assets\banners\antigravity-monitor-features.png','assets\banners\antigravity-monitor-customization.png')) {
+foreach ($required in @($vsix,'out\src\app\monitor.js','out\src\core\quota.js','media\icon.png','media\icon.ico','media\icon.icns','Antigravity Monitor.exe','Install Antigravity Monitor.exe','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh','assets\banners\antigravity-monitor-hero.jpg','assets\banners\antigravity-monitor-flyout.jpg','assets\banners\antigravity-monitor-features.jpg','assets\banners\antigravity-monitor-customization.jpg')) {
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot $required) -PathType Leaf)) { throw "Build first; missing: $required" }
 }
 $staging = Join-Path $OutputDirectory 'staging'
@@ -63,6 +63,7 @@ try {
         }
         if ($os.Name -ne 'windows') {
             Remove-Item -LiteralPath (Join-Path $bundleRoot 'tools\windows-launcher.cs') -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $bundleRoot 'tools\windows-flyout.cs') -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath (Join-Path $bundleRoot 'tools\install-windows.ps1') -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath (Join-Path $bundleRoot 'tools\start-companion.ps1') -Force -ErrorAction SilentlyContinue
         }

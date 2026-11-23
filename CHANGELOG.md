@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.3.0
+
+Adaptive multi-version Antigravity support (2.34+ and future releases), native lightweight Windows 11 system tray flyout, accurate output speed and session cache hit ratio metrics, Dark & Light dashboard themes, clickable account email masking on the inline card, and silent console-free sign-in startup. Packages are organized under `release/v1.3.0/`.
+
+### Adaptive Antigravity 2.34+ & future-version compatibility
+
+- **4-tier adaptive auth & RPC chain** (`src/app/monitor.ts`, `src/core/rpc.ts`, `tools/cdp-badge.mjs`, `tools/monitor-server.mjs`):
+  1. CLI `--csrf_token` / `--csrf-token` / `--csrftoken` (Antigravity ≤ 2.33, IDE, VS Code).
+  2. Memory-only runtime token handoff (`window.__APP_CONFIG__.csrfToken` → `Monitor.provideToken()`), never logged or persisted (Antigravity 2.34+).
+  3. Passive CDP `Network.requestWillBeSent` header capture (`extractCsrfHeader()`, `maxTotalBufferSize: 0`, auto-disabled after capture) when a future build moves tokens into a JS closure.
+  4. Same-origin in-page RPC fallback (`BadgeInjector.callRpc()` with `credentials: 'include'`) via `MonitorDeps.rpcFallback`.
+- **Future-proof discovery & CDP attachment** (`src/core/discovery.ts`, `tools/cdp-badge.mjs`): keeps app-owned renamed server binaries using ephemeral `--https_server_port 0` or `--standalone` on both Windows and POSIX; `devtoolsEndpoints()` auto-discovers additional `Antigravity*` profile channels; `isAttachableTarget()` attaches only to `page` targets; `PROBE` recognizes `window.__APP_CONFIG__.productName`; 5-tier adaptive inline pill anchoring (`VERSION = 27`) with non-intrusive bottom-right fallback; live `appVersion` change detection with staged post-update re-attach.
+- **Unauthorized visibility** (`src/app/monitor.ts`, `src/app/snapshot.ts`, `src/app/statusbar.ts`, `src/app/strings.ts`, `media/dashboard.js`): running backends that refuse requests without a DevTools session report `unauthorized` ("Authorization needed") instead of Standby.
+
+### Native Windows 11 tray flyout & silent startup
+
+- `tools/windows-flyout.cs`, `tools/windows-launcher.cs`, `scripts/build-windows-launchers.ps1`: replaced the Edge popup with a **100% native GDI+ / WinForms Windows 11 flyout** (`FormBorderStyle.None`, `ShowInTaskbar = false`, `TopMost = true`, native `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND`, `CS_DROPSHADOW`, ~15 MB RAM, zero Edge/WebView2 processes, zero idle polling when hidden) docked at the bottom-right corner above the taskbar with Dark/Light theme toggle (`T`), Refresh (`R`), Close (`Esc`), and clickable account email masking.
+- **Single-instance Windows system tray (`--tray`)**: left-click / **Open Antigravity (Active Thread)** focuses or launches Antigravity with `--remote-debugging-port=9222` and opens/focuses the Antigravity Monitor right-side browser panel (`openInAppPanel` via `[data-testid="new-tab-card-new-preview"]` and `[data-testid="browser-url-input"]`); **Open Monitor Dashboard** toggles the native flyout.
+- `tools/start-companion.ps1`, `tools/install-windows.ps1`: silent `CreateNoWindow` sign-in startup via `Antigravity Monitor.exe --companion [--supervise]`, failure logging to `companion-error.log`, port-race adoption, 20 s readiness timeout, and automatic tray cleanup on upgrade.
+
+### Metrics accuracy & dashboard polish
+
+- **Output speed (`tok/s`)** (`src/core/analysis.ts`): fixed ~2× undercounting on thinking turns by dividing full `output` tokens across the `viewableAt` → `finishedGeneratingAt` decode window, and retained the last valid measured `tok/s` across tiny sub-250ms tool-call steps.
+- **Cache hit ratio & token shares** (`media/dashboard.js`): denominator now includes `cacheCreate` (`input + cacheRead + cacheCreate`) with 1-decimal precision (capped at `99.9%` when fresh/cache-write tokens exist); top breakdown shows last-turn cache hit and `<1%` for small non-zero segments; KPI strip shows session-wide cache hit ratio.
+- **Dark & Light theme + inline account email** (`media/dashboard.html`, `media/dashboard.css`, `media/dashboard.js`, `tools/cdp-badge.mjs`, `tools/monitor-server.mjs`): crafted Obsidian Dark and Alabaster Light palettes with sun/moon toggle (`T`, persisted in `localStorage`), `cache-control: no-store` on `/media/*`, and clickable censored/uncensored active account email on the inline card.
+
+### Release preparation
+
+- Version 1.3.0 (`monitorBuild` `2026-11-23-v1.3.0`) across package metadata, launcher metadata, documentation, live v1.3.0 screenshots, and release tooling; **233/233** automated tests passing and live check verified against Antigravity 2.34.0.
+
 ## v1.2.0
 
 Forward-compatibility hardening for newer Antigravity backends and model catalogs, dashboard UI/motion upgrades, and cleanly organized universal installer packages under `release/v1.2.0/`. Source, native extension, companion, Windows EXE metadata, and release packages are bumped to **v1.2.0**.

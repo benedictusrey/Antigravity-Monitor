@@ -1,6 +1,21 @@
-# v1.2.0 release audit
+# v1.3.0 release audit
 
-Date: 19 November 2026 (updating the 17 November 2026 v1.1.0 and 6 November 2026 v1.0.0 baselines). Scope: local monitoring for desktop Antigravity, Antigravity IDE, VS Code, and VS Code Insiders, covering forward-compatible backend schemas, quota-pool disambiguation, catalog slug humanization, DevTools attachment (`VERSION = 24`), `data-terminal` UI/motion updates, and universal installer packaging.
+Date: 23 November 2026 (updating the 19 November 2026 v1.2.0, 17 November 2026 v1.1.0, and 6 November 2026 v1.0.0 baselines).
+
+## v1.3.0 Findings fixed
+
+| Priority | Concrete failure | Fix and evidence |
+|---|---|---|
+| High | Sign-in entries started PowerShell with `-WindowStyle Hidden`; Windows Terminal kept a console window open, the companion ran inside it, and closing it stopped the companion, so Antigravity was not recognized after sign-in. The logon task's last result was `0xC000013A`, the console-close exit code. | Startup shortcut, Run entry, and logon task run `Antigravity Monitor.exe --companion`, which starts the script with `CreateNoWindow`. The companion inherits that hidden console. Verified by a scratch-port run (start, reuse, supervised exit code 1 after stop, EXE-launched start) and by wiring tests in `tests/platform.test.ts`. The sign-in window was not observed on a desktop. |
+| Medium | Startup failures were invisible once the console was hidden. | Failures append to `companion-error.log`; verified by forcing a missing `package.json` (exit 1, message logged). |
+| Medium | A 6-second readiness window and a port race reported false failures when another launcher started first. | Readiness waits 20 seconds; a launcher that loses the port race adopts the running instance. |
+| High | Antigravity 2.34 hides the request token; the monitor dropped the running backend before probing it, so it reported Standby while Antigravity ran. | Token-less candidates are kept; a 401 yields `unauthorized`; the dashboard and status bar say "Authorization needed". Verified against live Antigravity 2.34.0. |
+| High | A 401 from one scheme was discarded when the other scheme failed to connect. | `dedupeBackends` ranks a refused-but-answering candidate first. Test in `tests/monitor-auth.test.ts`. |
+| High | The DevTools badge attached to any DevTools target, including workers and other debuggees on the same port. | `isAttachableTarget` accepts page targets only. Test in `tests/injector-target.test.ts`. |
+| Medium | Discovery notes never reached a stable snapshot, and a refused poll reported "No Antigravity backend answered". | Notes are part of the snapshot signature; refused polls report the token problem. |
+
+The v1.2.0 audit below remains the record of earlier conditions.
+ Scope: local monitoring for desktop Antigravity, Antigravity IDE, VS Code, and VS Code Insiders, covering forward-compatible backend schemas, quota-pool disambiguation, catalog slug humanization, DevTools attachment (`VERSION = 24`), `data-terminal` UI/motion updates, and universal installer packaging.
 
 ## v1.2.0 Findings fixed
 

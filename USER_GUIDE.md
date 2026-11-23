@@ -1,6 +1,6 @@
 # Antigravity Monitor user guide
 
-This guide covers v1.2.0. The white desktop app uses a separate companion. Antigravity IDE and VS Code can also run the native extension, which starts the installed companion automatically if needed.
+This guide covers v1.3.0. The white desktop app uses a separate companion. Antigravity IDE and VS Code can also run the native extension, which starts the installed companion automatically if needed.
 
 ## Install and update
 
@@ -8,7 +8,7 @@ Extract the complete companion ZIP. Install Node.js 22 or newer, then run the in
 
 The installer copies a stable runtime, preserves settings, creates startup integration, and starts the companion. Re-run it to update an existing installation. It identifies the monitor before stopping a process on port 4599 and saves the previous runtime as a backup. Do not run it with administrator or sudo privileges.
 
-Native editor extension installation depends on finding the editor CLI. If skipped, use **Extensions: Install from VSIX** inside the editor and select `antigravity-monitor-1.2.0.vsix`. Reload editor windows after installation.
+Native editor extension installation depends on finding the editor CLI. If skipped, use **Extensions: Install from VSIX** inside the editor and select `antigravity-monitor-1.3.0.vsix`. Reload editor windows after installation.
 
 macOS and Linux installation code is included, with native platform acceptance still pending. macOS installation requires a logged-in graphical session for the user LaunchAgent. Linux startup requires a desktop session that supports XDG autostart; it is not a system service.
 
@@ -81,7 +81,7 @@ Use arrow keys (or number keys `1`–`4`) to move between tabs and `r` to refres
 
 | Platform | Data | Runtime | Startup |
 |---|---|---|---|
-| Windows | `%LOCALAPPDATA%\Antigravity Monitor` | `app` beneath data | Windows Startup shortcut, `HKCU\...\Run` entry, and editor extension activation. |
+| Windows | `%LOCALAPPDATA%\Antigravity Monitor` | `app` beneath data | Windows Startup shortcut and `HKCU\...\Run` entry (both run `Antigravity Monitor.exe --companion` without a console window), the `AntigravityMonitor` logon task, and editor extension activation. Startup errors are logged to `companion-error.log`. |
 | macOS | `~/Library/Application Support/Antigravity Monitor` | `app` beneath data | `~/Library/LaunchAgents/io.github.benedictusrey.antigravity-monitor.plist`. |
 | Linux | `$XDG_STATE_HOME/antigravity-monitor` or `~/.local/state/antigravity-monitor` | `$XDG_DATA_HOME/antigravity-monitor/app` or `~/.local/share/antigravity-monitor/app` | `$XDG_CONFIG_HOME/autostart/antigravity-monitor.desktop` or `~/.config/autostart/antigravity-monitor.desktop`. |
 
