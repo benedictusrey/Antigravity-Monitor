@@ -169,6 +169,11 @@ function compareSameProcess(left: BackendStatus, right: BackendStatus): number {
   if (left.reachable !== right.reachable) {
     return left.reachable ? -1 : 1;
   }
+  // A 401 proves the process answered on this scheme; the other scheme only failed to connect.
+  const leftRefused = left.failureReason === 'unauthorized';
+  if (leftRefused !== (right.failureReason === 'unauthorized')) {
+    return leftRefused ? -1 : 1;
+  }
   if (left.conversationCount !== right.conversationCount) {
     return right.conversationCount - left.conversationCount;
   }

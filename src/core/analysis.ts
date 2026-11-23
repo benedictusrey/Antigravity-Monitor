@@ -83,6 +83,7 @@ const EMPTY_TOTALS: ConversationTotals = { input: 0, cacheRead: 0, cacheCreate: 
 export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
   let measured: MeasuredUsage | null = null;
   let measuredIndex = -1;
+  let lastValidTokPerSec: number | null = null;
   let planModel: string | null = null;
   let planModelIndex = -1;
   let generatorModel: string | null = null;
@@ -160,7 +161,12 @@ export function analyzeSteps(steps: readonly unknown[]): ConversationAnalysis {
       plannerCount += 1;
     }
 
-    measured = parsed;
+    if (parsed.tokPerSec !== null) {
+      lastValidTokPerSec = parsed.tokPerSec;
+    }
+    measured = parsed.tokPerSec === null && lastValidTokPerSec !== null
+      ? { ...parsed, tokPerSec: lastValidTokPerSec }
+      : parsed;
     measuredIndex = index;
     lastPlannerAt = createdAt ?? lastPlannerAt;
     totals.input += parsed.input;
@@ -252,7 +258,7 @@ export function parseModelUsage(
 }
 
 function computeTokPerSec(
-  record: Record<string, unknown>,
+  _record: Record<string, unknown>,
   output: number,
   metadata: Record<string, unknown> | null,
 ): number | null {
@@ -264,18 +270,17 @@ function computeTokPerSec(
   if (!Number.isFinite(finishedMs)) {
     return null;
   }
-  // Prefer visible response decode speed when thinking and response tokens are split (or zero thinking);
-  // sub-500ms windows fall through to full turn time to avoid clock-quantization spikes.
-  const streamedTokens = safeInt(record.responseOutputTokens) ?? ((safeInt(record.thinkingOutputTokens) ?? 0) === 0 ? output : null);
+  // `viewableAt` marks TTFT (when output streaming begins, inclusive of thinking), so `finishedGeneratingAt - viewableAt`
+  // is the decode window for all `output` tokens. Sub-500ms windows fall through to full turn time to avoid quantization spikes.
   const viewableIso = asString(metadata.viewableAt);
   const viewableMs = viewableIso ? Date.parse(viewableIso) : NaN;
-  if (streamedTokens !== null && streamedTokens > 0 && Number.isFinite(viewableMs) && finishedMs - viewableMs >= 500) {
-    return Math.round((streamedTokens / ((finishedMs - viewableMs) / 1000)) * 10) / 10;
+  if (Number.isFinite(viewableMs) && finishedMs - viewableMs >= 500) {
+    return Math.round((output / ((finishedMs - viewableMs) / 1000)) * 10) / 10;
   }
-  const createdIso = asString(metadata.createdAt);
-  const createdMs = createdIso ? Date.parse(createdIso) : NaN;
-  if (Number.isFinite(createdMs) && finishedMs - createdMs >= 250) {
-    return Math.round((output / ((finishedMs - createdMs) / 1000)) * 10) / 10;
+  const startIso = asString(metadata.startedAt) ?? asString(metadata.createdAt);
+  const startMs = startIso ? Date.parse(startIso) : NaN;
+  if (Number.isFinite(startMs) && finishedMs - startMs >= 250) {
+    return Math.round((output / ((finishedMs - startMs) / 1000)) * 10) / 10;
   }
   return null;
 }

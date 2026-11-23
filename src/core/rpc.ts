@@ -28,8 +28,8 @@ export interface BackendTarget {
   scheme: 'http' | 'https';
   host: string;
   port: number;
-  /** Per-backend CSRF token. Never logged. */
-  token: string;
+  /** Per-backend CSRF token, or null when the process does not expose one. Never logged. */
+  token: string | null;
   pid: number | null;
   appDataDir: string | null;
   /** The desktop app or the VS Code-based IDE, resolved from the process tree. */
@@ -132,7 +132,8 @@ export async function callRpc<T = unknown>(
         headers: {
           'content-type': 'application/json',
           'connect-protocol-version': '1',
-          'x-codeium-csrf-token': target.token,
+          // Sent only when the process exposes a token; a server that needs one answers 401 otherwise.
+          ...(target.token ? { 'x-codeium-csrf-token': target.token } : {}),
           accept: 'application/json',
           'content-length': payload.byteLength,
         },

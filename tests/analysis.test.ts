@@ -240,7 +240,28 @@ test('computes decode tok/s from viewableAt to finishedGeneratingAt and falls ba
       },
     },
   ]);
-  assert.equal(decode.measured?.tokPerSec, 200);
+  assert.equal(decode.measured?.tokPerSec, 220);
+
+  const retained = analyzeSteps([
+    {
+      type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',
+      metadata: {
+        createdAt: '2026-11-17T04:30:00.000Z',
+        viewableAt: '2026-11-17T04:30:20.000Z',
+        finishedGeneratingAt: '2026-11-17T04:30:30.000Z',
+        modelUsage: { inputTokens: 1000, outputTokens: 2200, responseOutputTokens: 2000, thinkingOutputTokens: 200 },
+      },
+    },
+    {
+      type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',
+      metadata: {
+        createdAt: '2026-11-17T04:30:35.000Z',
+        finishedGeneratingAt: '2026-11-17T04:30:35.100Z',
+        modelUsage: { inputTokens: 1200, outputTokens: 40 },
+      },
+    },
+  ]);
+  assert.equal(retained.measured?.tokPerSec, 220);
 
   const subHalfSec = analyzeSteps([
     {

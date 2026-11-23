@@ -38,7 +38,7 @@ import {
   quotaFor,
   resolveModel,
 } from '../core/models';
-import { BackendOwner, BackendTarget, RpcError, callRpc } from '../core/rpc';
+import { BackendOwner, BackendTarget, RpcError, RpcOptions, callRpc } from '../core/rpc';
 import {
   BackendStatus,
   TrajectorySummary,
@@ -86,6 +86,13 @@ export interface MonitorDeps {
   usageSummary: () => UsageSummary;
   /** The installation hosting this monitor, used to start on its own backend. */
   hostApp?: BackendOwner;
+  /** Optional same-origin RPC bridge used when direct loopback RPC lacks a token. */
+  rpcFallback?: <T = unknown>(
+    target: BackendTarget,
+    method: string,
+    body: unknown,
+    options: RpcOptions,
+  ) => Promise<T>;
 }
 
 interface CachedAnalysis {
@@ -133,6 +140,8 @@ export class Monitor {
   private quotaRequested = false;
   private readonly quotas = new Map<string, QuotaState>();
   private readonly quotaRetries = new Map<string, { failures: number; at: number }>();
+  /** Memory-only per-port tokens supplied by an attached renderer when CLI args omit one. Never logged or persisted. */
+  private readonly tokensByPort = new Map<number, string>();
 
   private statuses = new Map<string, BackendStatus>();
   private readonly instances = new Map<string, InstanceState>();
@@ -196,6 +205,7 @@ export class Monitor {
     this.quotaTimer = null;
     this.quotaAborter?.abort();
     this.quotaAborter = null;
+    this.tokensByPort.clear();
   }
 
   /** Wake discovery immediately when a local app or DevTools endpoint appears. */
@@ -269,7 +279,7 @@ export class Monitor {
       await Promise.allSettled(instances.map(async (instance) => {
         const target = instance.target;
         try {
-          const payload = await callRpc(target, 'RetrieveUserQuotaSummary', { forceRefresh: true }, {
+          const payload = await this.invokeRpc(target, 'RetrieveUserQuotaSummary', { forceRefresh: true }, {
             signal: aborter.signal, timeoutMs: 4000, maxBytes: 1024 * 1024,
           });
           if (this.disposed || aborter.signal.aborted || this.instances.get(target.id) !== instance || instance.target !== target) return;
@@ -327,6 +337,44 @@ export class Monitor {
     }
     this.publish();
     this.schedule(0);
+  }
+
+  /**
+   * Supply a memory-only request token observed from an attached renderer on the same loopback port.
+   * Newer Antigravity builds omit `--csrf_token` from the language server CLI; this unblocks polling immediately.
+   */
+  provideToken(backendPort: number, token: string): void {
+    if (this.disposed || !Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535) {
+      return;
+    }
+    if (typeof token !== 'string' || token.length === 0 || token.length > 512 || /\s/.test(token)) {
+      return;
+    }
+    if (this.tokensByPort.get(backendPort) === token) {
+      return;
+    }
+    this.tokensByPort.set(backendPort, token);
+
+    let woke = false;
+    for (const instance of this.instances.values()) {
+      if (instance.target.port !== backendPort) continue;
+      if (!instance.target.token || instance.status.failureReason === 'unauthorized') {
+        instance.target = { ...instance.target, token };
+        instance.retryAt = 0;
+        this.quotaRetries.delete(instance.target.id);
+        woke = true;
+      }
+    }
+    const anyUnauthorized = [...this.statuses.values()].some(
+      (status) => status.port === backendPort && status.failureReason === 'unauthorized',
+    );
+    if (woke || anyUnauthorized || this.instances.size === 0) {
+      this.failureCount = 0;
+      this.lastError = null;
+      this.needDiscovery = anyUnauthorized || this.instances.size === 0;
+      this.schedule(0);
+      this.refreshQuotaNow();
+    }
   }
 
   /**
@@ -484,7 +532,10 @@ export class Monitor {
 
     if (succeeded === 0) {
       this.lastFailureKind = ready.length === 0 ? 'discovery' : 'rpc';
-      throw firstFailure ?? new RpcError('unavailable', 'No Antigravity backend answered');
+      const refused = [...this.statuses.values()].some((status) => status.failureReason === 'unauthorized');
+      throw firstFailure ?? (refused
+        ? new RpcError('unauthorized', 'Antigravity is running, but its backend requires a request token this monitor cannot read')
+        : new RpcError('unavailable', 'No Antigravity backend answered'));
     }
 
     this.chooseFocus();
@@ -719,7 +770,12 @@ export class Monitor {
     try {
       const processes = await runDiscovery(this.deps.logger);
       if (this.disposed || generation !== this.generation) return;
-      const { targets, notes } = toBackendTargets(processes);
+      const { targets: rawTargets, notes } = toBackendTargets(processes);
+      const targets = rawTargets.map((target) => {
+        if (target.token) return target;
+        const supplied = this.tokensByPort.get(target.port);
+        return supplied ? { ...target, token: supplied } : target;
+      });
       this.discoveryNotes = notes;
 
       if (targets.length === 0) {
@@ -854,7 +910,7 @@ export class Monitor {
     };
 
     try {
-      const payload = await callRpc(target, 'GetAllCascadeTrajectories', {}, { timeoutMs: 6_000 });
+      const payload = await this.invokeRpc(target, 'GetAllCascadeTrajectories', {}, { timeoutMs: 6_000 });
       const conversations = parseTrajectories(payload);
       const lastActivityMs = conversations.reduce((newest, conversation) => {
         const parsed = conversation.lastModified ? Date.parse(conversation.lastModified) : 0;
@@ -1018,6 +1074,10 @@ export class Monitor {
 
   private deriveStatus(focus: InstanceState | null, active: TrajectorySummary | null): MonitorStatus {
     if (!focus) {
+      // The process is running and answers, but refuses every request without a token we cannot read.
+      if ([...this.statuses.values()].some((status) => status.failureReason === 'unauthorized')) {
+        return 'unauthorized';
+      }
       if (this.statuses.size === 0) {
         return this.lastFailureKind === 'discovery' || !this.lastError ? 'disconnected' : 'error';
       }
@@ -1309,6 +1369,29 @@ export class Monitor {
     }
   }
 
+  private async invokeRpc<T>(
+    target: BackendTarget,
+    method: string,
+    body: unknown,
+    options: RpcOptions,
+  ): Promise<T> {
+    const token = target.token ?? this.tokensByPort.get(target.port) ?? null;
+    const effective = token === target.token ? target : { ...target, token };
+    try {
+      return await callRpc<T>(effective, method, body, options);
+    } catch (error) {
+      if (error instanceof RpcError && error.code === 'unauthorized') {
+        if (!target.token && token && this.tokensByPort.get(target.port) === token) {
+          this.tokensByPort.delete(target.port);
+        }
+        if (this.deps.rpcFallback) {
+          return await this.deps.rpcFallback<T>(effective, method, body, options);
+        }
+      }
+      throw error;
+    }
+  }
+
   private async call<T>(
     target: BackendTarget,
     method: string,
@@ -1316,7 +1399,7 @@ export class Monitor {
     timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<T> {
-    return callRpc<T>(target, method, body, {
+    return this.invokeRpc<T>(target, method, body, {
       timeoutMs,
       maxBytes: this.prefs().maxPayloadMb * 1024 * 1024,
       signal,
@@ -1374,6 +1457,7 @@ function snapshotSignature(snapshot: Snapshot): string {
     snapshot.composerModelName ?? null,
     snapshot.activeQuotaGroupId ?? null,
     snapshot.lastError,
+    snapshot.discoveryNotes,
     snapshot.prefs,
     snapshot.quota,
     snapshot.backends.map((backend) => [backend.id, backend.reachable, backend.active, backend.conversations]),

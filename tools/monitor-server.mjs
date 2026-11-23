@@ -70,6 +70,8 @@ const badge = argv.includes('--no-badge')
       },
       onObserved: (port, conversationId, viewState, modelName) =>
         monitor?.observeConversation(port, conversationId, viewState, modelName),
+      onToken: (backendPort, token) => monitor?.provideToken(backendPort, token),
+      onAppVersion: (version) => handleObservedAppVersion(version),
       onRefresh: () => {
         console.log('[badge] refresh requested');
         monitor?.refreshNow();
@@ -131,6 +133,7 @@ const monitorInstance = new Monitor({
     scheduleSave();
   },
   usageSummary: () => summariseUsage(buckets),
+  rpcFallback: badge ? (target, method, body, options) => badge.callRpc(target.port, method, body, options) : undefined,
 });
 monitor = monitorInstance;
 latest = monitorInstance.getSnapshot();
@@ -274,6 +277,9 @@ function applyCommand(message) {
     case 'relaunchApp':
       relaunchDesktopApp();
       return;
+    case 'openInAppPanel':
+      void badge?.openInAppPanel();
+      return;
     case 'selectBackend':
       monitor.selectBackend(message.id);
       return;
@@ -359,7 +365,10 @@ const server = http.createServer((request, response) => {
     }
     try {
       const body = fs.readFileSync(file);
-      response.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
+      response.writeHead(200, {
+        'content-type': MIME[path.extname(file)] ?? 'application/octet-stream',
+        'cache-control': 'no-store',
+      });
       response.end(body);
     } catch {
       response.writeHead(404);
@@ -429,11 +438,26 @@ function refreshWindowsMonitorShortcuts(exePath) {
   );
 }
 
+function handleObservedAppVersion(version) {
+  if (!version) return;
+  const previous = knownAppBuild?.appVersion ?? null;
+  if (previous === version) return;
+  knownAppBuild = { ...(knownAppBuild ?? { version: null, signature: '' }), appVersion: version };
+  scheduleSave();
+  if (previous) {
+    console.log(`[app] Antigravity runtime updated (${previous} -> ${version}); refreshing monitor & badge.`);
+    appUpdate = { version, previousVersion: previous, detectedAt: Date.now() };
+    monitor.refreshNow();
+    badge?.wake();
+    wakeBadgeAfterRelaunch();
+  }
+}
+
 function checkAntigravityUpdate(reason = 'poll') {
   const current = readAntigravityBuild();
   const result = applyAppUpdateCheck(knownAppBuild, appUpdate, current);
   if (result.knownBuild !== knownAppBuild) {
-    knownAppBuild = result.knownBuild;
+    knownAppBuild = result.knownBuild ? { ...result.knownBuild, appVersion: knownAppBuild?.appVersion ?? null } : null;
     scheduleSave();
   }
   appUpdate = result.notice;
@@ -443,6 +467,7 @@ function checkAntigravityUpdate(reason = 'poll') {
     );
     monitor.refreshNow();
     badge?.wake();
+    wakeBadgeAfterRelaunch();
     if (current?.exePath) {
       refreshWindowsMonitorShortcuts(current.exePath);
     }

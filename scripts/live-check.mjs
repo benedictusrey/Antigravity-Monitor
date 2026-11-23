@@ -16,6 +16,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
+import { BadgeInjector } from '../tools/cdp-badge.mjs';
 
 const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,8 @@ const TIMEOUT_MS = Number(process.env.LIVE_CHECK_TIMEOUT_MS ?? 25_000);
 const logs = [];
 const usageRecords = [];
 let latest = null;
+
+let badge = null;
 
 const monitor = new Monitor({
   logger: (message) => {
@@ -58,6 +61,19 @@ const monitor = new Monitor({
     monthCostUsd: null,
     priced: false,
   }),
+  rpcFallback: (target, method, body, options) => badge.callRpc(target.port, method, body, options),
+});
+
+badge = new BadgeInjector({
+  logger: (message) => {
+    logs.push(message);
+    if (process.env.LIVE_CHECK_VERBOSE) {
+      console.log(`  · ${message}`);
+    }
+  },
+  onToken: (port, token) => monitor.provideToken(port, token),
+  onObserved: (port, conversationId, viewState, modelName) =>
+    monitor.observeConversation(port, conversationId, viewState, modelName),
 });
 
 function waitFor(predicate, timeoutMs) {
@@ -80,9 +96,11 @@ function bar(percent) {
 async function main() {
   console.log('Antigravity Monitor — live check');
   console.log('─'.repeat(64));
+  badge.wake();
   monitor.start();
 
   const ready = await waitFor(() => latest && latest.status === 'ok' && latest.conversation?.usage, TIMEOUT_MS);
+  badge.stop();
   monitor.stop();
 
   if (!latest) {

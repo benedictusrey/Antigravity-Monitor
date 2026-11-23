@@ -24,6 +24,7 @@ export type MonitorStatus =
   | 'ok'
   | 'no-conversation'
   | 'disconnected'
+  | 'unauthorized'
   | 'error';
 
 export interface BackendView {

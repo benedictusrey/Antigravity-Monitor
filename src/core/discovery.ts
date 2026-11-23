@@ -175,14 +175,15 @@ export function toBackendTargets(processes: readonly RawProcess[]): DiscoveryRes
     const token = flags.get('csrf_token') ?? flags.get('csrf-token') ?? flags.get('csrftoken');
     const name = (process.name ?? '').toLowerCase();
 
-    if (!isValidToken(token)) {
-      notes.push(`pid ${process.pid} (${process.name || 'unknown'}) has no usable request token`);
-      continue;
-    }
+    // Newer builds pass no token on the command line. Keep the process: the server answers 401 without
+    // one, which still identifies it, and the monitor reports that state instead of hiding the app.
+    const requestToken = isValidToken(token) ? token : null;
 
     const appDataDir = flags.get('app_data_dir') ?? null;
     const hubPort = parsePort(flags.get('hub-port') ?? flags.get('hub_port'));
     const httpsPort = parsePort(flags.get('https_server_port') ?? flags.get('https-server-port'));
+    const hasServerFlag =
+      flags.has('https_server_port') || flags.has('https-server-port') || flags.has('standalone');
     const isLegacyName =
       name.startsWith('language_server') ||
       name.startsWith('cortex_server') ||
@@ -197,7 +198,7 @@ export function toBackendTargets(processes: readonly RawProcess[]): DiscoveryRes
         scheme: 'http',
         host: '127.0.0.1',
         port: hubPort,
-        token,
+        token: requestToken,
         pid: process.pid,
         appDataDir,
         owner,
@@ -205,7 +206,7 @@ export function toBackendTargets(processes: readonly RawProcess[]): DiscoveryRes
       continue;
     }
 
-    if (!isLegacyName && httpsPort === null) {
+    if (!isLegacyName && httpsPort === null && !(hasServerFlag && owner === 'app')) {
       if (flags.has('hub')) {
         notes.push(`pid ${process.pid} advertises a hub role without a usable --hub-port`);
       }
@@ -241,7 +242,7 @@ export function toBackendTargets(processes: readonly RawProcess[]): DiscoveryRes
         scheme: candidate.scheme,
         host: '127.0.0.1',
         port: candidate.port,
-        token,
+        token: requestToken,
         pid: process.pid,
         appDataDir,
         owner,
@@ -286,7 +287,7 @@ export function windowsDiscoveryScript(): string {
     '  }',
     '  return "unknown"',
     '}',
-    '$procs = $all | Where-Object { $_.Name -like "agy*" -or $_.Name -like "language_server*" -or $_.Name -like "cortex_server*" -or $_.Name -like "antigravity_server*" };',
+    '$procs = $all | Where-Object { $_.Name -like "agy*" -or $_.Name -like "language_server*" -or $_.Name -like "cortex_server*" -or $_.Name -like "antigravity_server*" -or ($_.CommandLine -match "--https_server_port|--standalone" -and (Get-Owner $_.ProcessId) -eq "app") };',
     '$result = @();',
     'foreach ($p in $procs) {',
     '  $ports = @(Get-NetTCPConnection -OwningProcess $p.ProcessId -State Listen -ErrorAction SilentlyContinue |',
@@ -309,7 +310,7 @@ export function posixDiscoveryScript(): string {
       END {
         for (pid in executable) {
           name=executable[pid]; sub("^.*/", "", name);
-          if (name !~ /^(agy|language_server|cortex_server|antigravity_server)([._-].*)?$/) continue;
+          matched=(name ~ /^(agy|language_server|cortex_server|antigravity_server)([._-].*)?$/);
           owner="unknown"; current=pid;
           for (depth=0; current && depth<12; depth++) {
             ancestor=tolower(executable[current]); base=ancestor; sub("^.*/", "", base);
@@ -318,11 +319,13 @@ export function posixDiscoveryScript(): string {
             if (ancestor ~ /antigravity[.]app[/]/ || base ~ /^antigravity/) { owner="app"; break; }
             current=parent[current];
           }
-          printf "%s\\t%s\\t%s\\n", pid, owner, name;
+          if (!matched && owner != "app") continue;
+          printf "%s\\t%s\\t%s\\t%s\\n", pid, owner, name, matched ? "1" : "0";
         }
-      }' | while IFS="$(printf '\\t')" read -r pid owner name; do`,
+      }' | while IFS="$(printf '\\t')" read -r pid owner name matched; do`,
     '  cmd=$(ps -p "$pid" -o args= 2>/dev/null | tr \'\\t\\r\\n\' \'   \');',
     '  [ -n "$cmd" ] || continue;',
+    '  if [ "$matched" != "1" ]; then case "$cmd" in *--https_server_port*|*--standalone*) ;; *) continue ;; esac; fi;',
     '  ports="";',
     '  if command -v lsof >/dev/null 2>&1; then',
     '    ports=$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$pid" -Fn 2>/dev/null | awk \'/^n/ {sub(/^.*:/, ""); if ($0 ~ /^[0-9]+$/) print}\');',

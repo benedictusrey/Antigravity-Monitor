@@ -49,6 +49,8 @@ export function statusText(snapshot: Snapshot): string {
       return `$(debug-disconnect) ${STRINGS.statusBar.noBackend}`;
     case 'error':
       return `$(warning) ${STRINGS.statusBar.error}`;
+    case 'unauthorized':
+      return `$(lock) ${STRINGS.statusBar.unauthorized}`;
     case 'no-conversation':
       return `$(pulse) ${STRINGS.statusBar.noConversation}`;
     default:
@@ -111,6 +113,13 @@ export function tooltipFor(snapshot: Snapshot): vscode.MarkdownString {
 
   if (snapshot.status === 'starting') {
     tooltip.appendMarkdown(STRINGS.statusBar.starting);
+    return tooltip;
+  }
+
+  if (snapshot.status === 'unauthorized') {
+    tooltip.appendMarkdown(`**${STRINGS.statusBar.unauthorized}**\n\n${STRINGS.tooltip.unauthorized}`);
+    appendBackendList(tooltip, snapshot);
+    appendFooter(tooltip, snapshot);
     return tooltip;
   }
 

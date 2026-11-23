@@ -9,6 +9,7 @@ import {
   posixDiscoveryScript,
   toBackendTargets,
   tokenizeCommandLine,
+  windowsDiscoveryScript,
 } from '../src/core/discovery';
 
 const HUB_COMMAND =
@@ -68,13 +69,21 @@ test('a legacy process yields HTTPS and HTTP candidates for each listening port'
   assert.ok(targets.every((target) => target.kind === 'legacy'));
 });
 
-test('a process without a token is reported and skipped', () => {
+test('a process without a token stays a candidate, because the server decides access', () => {
+  // Antigravity 2.34 moved the token off the command line; the backend answers 401 instead.
   const { targets, notes } = toBackendTargets([
     { pid: 5, name: 'agy.exe', cmd: 'agy.exe --hub --hub-port=50096', ports: [50096] },
+    { pid: 6, name: 'language_server.exe', cmd: 'language_server.exe --standalone --https_server_port 0', ports: [64401], owner: 'app' },
   ]);
-  assert.equal(targets.length, 0);
-  assert.equal(notes.length, 1);
-  assert.match(notes[0], /no usable request token/);
+  assert.equal(notes.length, 0);
+  assert.deepEqual(targets.map((target) => target.id).sort(), ['http:64401', 'https:64401', 'hub:http:50096'].sort());
+  assert.ok(targets.every((target) => target.token === null));
+});
+
+test('the Windows scan includes Antigravity-owned servers by their flags, not only by name', () => {
+  const script = windowsDiscoveryScript();
+  assert.match(script, /--https_server_port\|--standalone/);
+  assert.match(script, /-eq "app"/);
 });
 
 test('an out-of-range hub port is rejected rather than probed', () => {
@@ -242,5 +251,21 @@ test('discovery accepts renamed server binaries with csrf_token and https_server
   ]);
   assert.equal(targets.length, 2);
   assert.equal(targets[0].id, 'https:51234');
+  assert.equal(targets[0].owner, 'app');
+});
+
+test('discovery accepts renamed app-owned binaries using ephemeral --https_server_port 0 and --standalone', () => {
+  const { targets } = toBackendTargets([
+    {
+      pid: 9013,
+      name: 'future_backend.exe',
+      cmd: 'future_backend.exe --standalone --https_server_port 0',
+      ports: [58551],
+      owner: 'app',
+    },
+  ]);
+  assert.equal(targets.length, 2);
+  assert.equal(targets[0].id, 'https:58551');
+  assert.equal(targets[0].token, null);
   assert.equal(targets[0].owner, 'app');
 });

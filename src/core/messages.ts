@@ -28,6 +28,7 @@ export type InboundMessage =
   | { type: 'refresh' }
   | { type: 'diagnostics' }
   | { type: 'relaunchApp' }
+  | { type: 'openInAppPanel' }
   | { type: 'selectBackend'; id: string }
   | { type: 'selectSession'; id: string | null }
   | { type: 'updateSetting'; key: SettingKey; value: string | number | boolean };
@@ -50,6 +51,7 @@ export function parseMessage(value: unknown): InboundMessage | null {
     case 'refresh':
     case 'diagnostics':
     case 'relaunchApp':
+    case 'openInAppPanel':
       return { type: record.type };
 
     case 'selectBackend': {

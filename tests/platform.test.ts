@@ -68,7 +68,7 @@ test('POSIX installer rejects missing explicit --vsix and cleans Linux desktop e
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agm-posix-test-'));
   try {
     assert.throws(
-      () => resolveVsixFile(tempRoot, '1.2.0', path.join(tempRoot, 'missing.vsix')),
+      () => resolveVsixFile(tempRoot, '1.3.0', path.join(tempRoot, 'missing.vsix')),
       /VSIX package not found/,
     );
     const autostart = path.join(tempRoot, 'autostart.desktop');
@@ -207,8 +207,14 @@ test('Windows startup helper and installer configure fallback Node resolution, S
   assert.match(installer, /\[switch\]\$RefreshShortcuts/);
   assert.match(installer, /Save-MonitorLaunchShortcuts/);
   assert.match(installer, /Register-ScheduledTask/);
-  assert.match(installer, /-Supervise/);
+  assert.match(installer, /'--companion --supervise'/);
   assert.match(installer, /-RestartCount 3/);
+  // Boot entries go through the launcher, which creates no console window. A bare PowerShell entry shows one.
+  assert.match(installer, /\$shortcut\.Arguments = '--companion'/);
+  assert.doesNotMatch(installer, /-WindowStyle Hidden -File/);
+  assert.match(starter, /-NoNewWindow/);
+  assert.doesNotMatch(starter, /-WindowStyle Hidden/);
+  assert.match(fs.readFileSync(path.join(root, 'tools', 'windows-launcher.cs'), 'utf8'), /CreateNoWindow = true/);
   if (process.platform === 'win32') {
     const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     for (const file of [starterFile, installerFile]) {

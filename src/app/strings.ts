@@ -27,6 +27,7 @@ export const STRINGS = {
     noBackend: 'No Antigravity backend',
     noConversation: 'No active conversation',
     error: 'Monitoring unavailable',
+    unauthorized: 'Authorization needed',
     unavailable: 'Conversation too large',
   },
   tooltip: {
@@ -54,6 +55,7 @@ export const STRINGS = {
     openDashboard: 'Open dashboard',
     noConversation: 'No conversation is active in Antigravity.',
     noBackend: 'No Antigravity language server was found.',
+    unauthorized: 'Antigravity is running, but its language server needs a request token this monitor cannot read.',
     stale: 'Last reading is out of date',
   },
   actions: {

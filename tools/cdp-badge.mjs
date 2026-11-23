@@ -25,21 +25,29 @@ const require = createRequire(import.meta.url);
 const { quotaAt, quotaBucket, resolveQuotaGroup } = require('../out/src/core/quota.js');
 const { snippetPreferences } = require('../out/src/core/snippet.js');
 const { formatRate } = require('../out/src/core/format.js');
+const { RpcError, SERVICE_PATH } = require('../out/src/core/rpc.js');
 
 export const PROBE = `(function(){
-  if (document.querySelector('[data-testid="agent-input-box"], [data-testid*="composer"], [data-testid*="chat-input"], [data-testid="model-selector-trigger"], [data-testid="permissions-selector-trigger"]')) return true;
+  if (typeof location !== 'undefined') {
+    var proto = location.protocol || '';
+    var host = location.hostname || '';
+    var isLocal = ['127.0.0.1', 'localhost', '[::1]', ''].includes(host) || proto === 'vscode-webview:' || proto === 'vscode-file:' || proto === 'file:';
+    if (!isLocal) return false;
+  }
+  if (typeof window !== 'undefined' && window.__APP_CONFIG__ && /antigravity/i.test(String(window.__APP_CONFIG__.productName || '')) && typeof location !== 'undefined' && ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) return true;
+  if (document.querySelector('[data-testid="agent-input-box"], [data-testid="conversation-view"], [data-testid*="composer"], [data-testid*="chat-input"], [data-testid="model-selector-trigger"], [data-testid="permissions-selector-trigger"]')) return true;
   if (document.querySelector('[contenteditable="true"][aria-label*="Ask" i], [contenteditable="true"][data-placeholder*="Ask" i], textarea[placeholder*="Ask" i], [aria-label*="chat input" i]')) return true;
   if (!document.querySelector('[contenteditable="true"], textarea')) return false;
   var btns = document.querySelectorAll('button, [role="button"]');
   for (var i = 0; i < btns.length; i++) {
     var t = (btns[i].textContent || '').trim();
-    if (/^(?:Turbo|Auto|Manual|Ask before edit|Orchestrator\\b|Gemini\\b|Claude\\b|GPT\\b)/i.test(t) && t.length <= 48) return true;
+    if (/^(?:Turbo|Auto|Manual|Ask before edit|Orchestrator\\b|Gemini\\b|Claude\\b|GPT\\b|Argon\\b|Neon\\b|Hydrogen\\b|Carbon\\b|Opus\\b|Sonnet\\b)/i.test(t) && t.length <= 48) return true;
   }
   return false;
 })()`;
 
 /** Bump when the injected script changes; the guard below is built from it. */
-const VERSION = 24;
+const VERSION = 28;
 
 export const INSTALL = `(function () {
   if (window.__agmVersion === ${VERSION}) return true;
@@ -100,6 +108,7 @@ export const INSTALL = `(function () {
   var card = null;
   var cardParts = null;
   var open = false;
+  var emailRevealed = null;
   var refreshRequested = false;
   var copyTimer = null;
   var pendingPrefs = {};
@@ -198,8 +207,13 @@ export const INSTALL = `(function () {
       }
     });
     pill.addEventListener('mouseleave', function () {
-      pill.style.backgroundColor = 'transparent';
-      pill.style.borderColor = 'transparent';
+      if (pill.hasAttribute('data-agm-floating')) {
+        pill.style.backgroundColor = 'var(--card,rgba(27,27,27,0.92))';
+        pill.style.borderColor = 'var(--border,rgba(255,255,255,0.14))';
+      } else {
+        pill.style.backgroundColor = 'transparent';
+        pill.style.borderColor = 'transparent';
+      }
       if (!reducedMotion) pill.style.transform = 'scale(1)';
     });
     pill.addEventListener('pointerdown', function () {
@@ -217,10 +231,34 @@ export const INSTALL = `(function () {
     });
   }
 
+  function setFloating(floating) {
+    if (!pill) return;
+    if (floating) {
+      pill.setAttribute('data-agm-floating', '1');
+      pill.style.position = 'fixed';
+      pill.style.bottom = '14px';
+      pill.style.right = '16px';
+      pill.style.zIndex = '2147482999';
+      pill.style.backgroundColor = 'var(--card,rgba(27,27,27,0.92))';
+      pill.style.borderColor = 'var(--border,rgba(255,255,255,0.14))';
+      pill.style.boxShadow = '0 4px 14px rgba(0,0,0,0.28)';
+    } else if (pill.hasAttribute('data-agm-floating')) {
+      pill.removeAttribute('data-agm-floating');
+      pill.style.position = '';
+      pill.style.bottom = '';
+      pill.style.right = '';
+      pill.style.zIndex = '';
+      pill.style.backgroundColor = 'transparent';
+      pill.style.borderColor = 'transparent';
+      pill.style.boxShadow = '';
+    }
+  }
+
   function placePill() {
     var turbo = document.querySelector('[data-testid="permissions-selector-trigger"]');
     var group = turbo && turbo.parentElement;
     if (group && group.parentElement) {
+      setFloating(false);
       if (pill.parentElement !== group.parentElement || pill.nextSibling !== group) {
         group.parentElement.insertBefore(pill, group);
       }
@@ -229,14 +267,15 @@ export const INSTALL = `(function () {
     var model = document.querySelector('[data-testid="model-selector-trigger"], [data-testid*="model-selector"], [data-testid*="model-picker"], button[aria-label*="Model" i]');
     var bar = model && model.parentElement && model.parentElement.parentElement;
     if (bar && model.parentElement) {
+      setFloating(false);
       if (pill.parentElement !== bar) {
         bar.insertBefore(pill, model.parentElement.nextSibling);
       }
       return true;
     }
-    // Fallback when data-testid attributes change: prefer mode triggers (Turbo/Auto/Manual) then model triggers.
+    // Tier 3: button text heuristic when data-testid attributes change.
     var buttons = document.querySelectorAll('button, [role="button"]');
-    var tiers = [/^(?:Turbo|Auto|Manual|Ask before edit)\b/i, /^(?:Orchestrator|Gemini|Claude|GPT)\b/i];
+    var tiers = [/^(?:Turbo|Auto|Manual|Ask before edit|Plan|Fast)\b/i, /^(?:Orchestrator|Gemini|Claude|GPT|Argon|Neon|Hydrogen|Carbon|Opus|Sonnet)\b/i];
     for (var pass = 0; pass < tiers.length; pass++) {
       for (var i = 0; i < buttons.length; i++) {
         var btn = buttons[i];
@@ -248,14 +287,51 @@ export const INSTALL = `(function () {
           if (row.offsetHeight > 0 && row.offsetHeight <= 72 && row.offsetWidth > btn.offsetWidth + 20 && row.querySelectorAll('button, [role="button"]').length >= 2) {
             var child = btn;
             while (child && child.parentElement !== row) child = child.parentElement;
-            if (child && (pill.parentElement !== row || pill.nextSibling !== child)) {
-              row.insertBefore(pill, child);
+            if (child) {
+              setFloating(false);
+              if (pill.parentElement !== row || pill.nextSibling !== child) {
+                row.insertBefore(pill, child);
+              }
             }
             return true;
           }
           row = row.parentElement;
         }
       }
+    }
+    // Tier 4: structural composer-toolbar heuristic for future UI redesigns.
+    var input = document.querySelector('[data-testid="agent-input-box"], [data-testid*="composer"], [data-testid*="chat-input"], [contenteditable="true"], textarea');
+    if (input && input.offsetParent !== null) {
+      var box = input.parentElement;
+      for (var depth = 0; depth < 5 && box && box !== document.body; depth++) {
+        if (box.offsetHeight >= 48 && box.offsetHeight <= 360) {
+          var candidates = box.querySelectorAll('div, footer, section');
+          for (var c = candidates.length - 1; c >= 0; c--) {
+            var barEl = candidates[c];
+            if (!barEl || barEl === pill || barEl.closest('[data-agm-badge], [data-agm-card]')) continue;
+            if (barEl.offsetHeight > 0 && barEl.offsetHeight <= 72 && barEl.offsetWidth >= 140) {
+              var barBtns = barEl.querySelectorAll('button, [role="button"]');
+              if (barBtns.length >= 2) {
+                setFloating(false);
+                if (pill.parentElement !== barEl) {
+                  barEl.appendChild(pill);
+                }
+                return true;
+              }
+            }
+          }
+        }
+        box = box.parentElement;
+      }
+    }
+    // Tier 5: non-intrusive floating corner dock on verified Antigravity app pages when no toolbar anchor exists.
+    var isAgPage = typeof window !== 'undefined' && window.__APP_CONFIG__ && /antigravity/i.test(String(window.__APP_CONFIG__.productName || ''));
+    if (isAgPage && document.body) {
+      setFloating(true);
+      if (pill.parentElement !== document.body) {
+        document.body.appendChild(pill);
+      }
+      return true;
     }
     return false;
   }
@@ -395,7 +471,21 @@ export const INSTALL = `(function () {
 
     var head = mk('div', 'display:flex;align-items:flex-start;justify-content:space-between;gap:10px');
     var ident = mk('div', 'display:flex;flex-direction:column;gap:1px;min-width:0;overflow:hidden');
-    var app = mk('span', 'color:var(--muted-foreground,#b4b4b4);font-size:12px;line-height:1.4');
+    var app = mk('button', 'appearance:none;border:0;background:transparent;padding:0;margin:0;text-align:left;color:var(--muted-foreground,#b4b4b4);font:inherit;font-size:12px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;cursor:default');
+    app.setAttribute('type', 'button');
+    app.addEventListener('mouseenter', function () {
+      if (last && last.card && last.card.accountEmail) app.style.color = 'var(--foreground,#fff)';
+    });
+    app.addEventListener('mouseleave', function () {
+      app.style.color = 'var(--muted-foreground,#b4b4b4)';
+    });
+    app.addEventListener('click', function (event) {
+      if (!last || !last.card || !last.card.accountEmail) return;
+      event.stopPropagation();
+      var currentlyRevealed = emailRevealed !== null ? emailRevealed : !last.card.maskEmailDefault;
+      emailRevealed = !currentlyRevealed;
+      renderCard();
+    });
     var title = mk('span', 'color:var(--foreground,#fff);font-size:14px;font-weight:600;line-height:1.4;overflow-wrap:anywhere');
     ident.appendChild(app);
     ident.appendChild(title);
@@ -568,9 +658,13 @@ export const INSTALL = `(function () {
       'cursor:pointer'
     ].join(';'), 'Dashboard');
     openDash.href = 'http://127.0.0.1:4599';
-    openDash.target = '_blank';
-    openDash.rel = 'noopener noreferrer';
-    openDash.title = 'Open Antigravity Monitor dashboard';
+    openDash.title = 'Open Antigravity Monitor in side panel';
+    openDash.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleCard(false);
+      void openMonitorInSidePanel(openDash.href);
+    });
 
     var footActions = mk('div', 'display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%');
     var rightActions = mk('div', 'display:flex;align-items:center;gap:4px');
@@ -705,8 +799,20 @@ export const INSTALL = `(function () {
       return;
     }
 
-    cardParts.app.textContent = values.app || '';
-    cardParts.app.style.display = values.app ? '' : 'none';
+    if (values.accountEmail) {
+      var revealed = emailRevealed !== null ? emailRevealed : !values.maskEmailDefault;
+      cardParts.app.textContent = revealed ? values.accountEmail : (values.maskedEmail || values.accountEmail);
+      cardParts.app.style.display = '';
+      cardParts.app.style.cursor = 'pointer';
+      cardParts.app.title = revealed ? 'Click to mask account email' : 'Click to show account email';
+      cardParts.app.setAttribute('aria-label', cardParts.app.title);
+    } else {
+      cardParts.app.textContent = values.app || '';
+      cardParts.app.style.display = values.app ? '' : 'none';
+      cardParts.app.style.cursor = 'default';
+      cardParts.app.title = '';
+      cardParts.app.removeAttribute('aria-label');
+    }
     cardParts.title.textContent = values.title;
     cardParts.title.title = values.title;
     cardParts.chip.textContent = stale ? 'Stale' : values.sourceLabel;
@@ -806,6 +912,91 @@ export const INSTALL = `(function () {
     }
     card.focus({ preventScroll: true });
   }
+
+  // ---------------------------------------------------------------- side panel
+
+  function openMonitorInSidePanel(targetUrl) {
+    var url = targetUrl || 'http://127.0.0.1:4599';
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    function findMonitorTab() {
+      var tabs = document.querySelectorAll('button, [role="tab"]');
+      for (var i = 0; i < tabs.length; i++) {
+        var el = tabs[i];
+        if (!el || el.closest('[data-agm-badge], [data-agm-card]')) continue;
+        var label = ((el.getAttribute('title') || el.textContent || '')).trim();
+        if (label === 'Antigravity Monitor') return el;
+      }
+      return null;
+    }
+    function setUrlAndSubmit(input) {
+      var desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+      if (desc && desc.set) desc.set.call(input, url);
+      else input.value = url;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      if (input.form && typeof input.form.requestSubmit === 'function') {
+        input.form.requestSubmit();
+      } else if (input.form) {
+        input.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      } else {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+      }
+    }
+    function findBrowserCard() {
+      var direct = document.querySelector('[data-testid="new-tab-card-new-preview"]');
+      if (direct && direct.offsetParent !== null) return direct;
+      var items = document.querySelectorAll('button, [role="menuitem"], [role="option"]');
+      for (var m = 0; m < items.length; m++) {
+        var el = items[m];
+        if (!el || el.offsetParent === null || el.closest('[data-agm-badge], [data-agm-card]')) continue;
+        if (/^browser$/i.test((el.textContent || '').trim())) return el;
+      }
+      return null;
+    }
+    return (async function () {
+      var toggle = document.querySelector('[data-testid="toggle-aux-sidebar"]');
+      if (toggle && (toggle.getAttribute('aria-expanded') === 'false' || toggle.getAttribute('aria-pressed') === 'false')) {
+        toggle.click();
+        await sleep(180);
+      }
+      var existing = findMonitorTab();
+      if (existing) {
+        existing.click();
+        return 'focused';
+      }
+      var urlInput = document.querySelector('[data-testid="browser-url-input"]');
+      if (urlInput && (!urlInput.value || urlInput.value === 'about:blank')) {
+        setUrlAndSubmit(urlInput);
+        return 'navigated';
+      }
+      var browserCard = findBrowserCard();
+      if (!browserCard) {
+        var newTab = document.querySelector('[data-testid="side-panel-new-tab-button"]');
+        if (newTab) {
+          newTab.click();
+          for (var w = 0; w < 12; w++) {
+            await sleep(60);
+            browserCard = findBrowserCard();
+            if (browserCard) break;
+          }
+        }
+      }
+      if (browserCard) {
+        browserCard.click();
+      }
+      for (var attempt = 0; attempt < 22; attempt++) {
+        await sleep(75);
+        urlInput = document.querySelector('[data-testid="browser-url-input"]');
+        if (urlInput) {
+          setUrlAndSubmit(urlInput);
+          return 'opened';
+        }
+      }
+      return 'unavailable';
+    })();
+  }
+
+  window.__agmOpenPanel = openMonitorInSidePanel;
 
   // ---------------------------------------------------------------- events
 
@@ -939,6 +1130,7 @@ class CdpConnection {
     this.pending = new Map();
     this.closed = false;
     this.onClose = null;
+    this.onEvent = null;
     this.socket = new WebSocket(url);
     this.ready = new Promise((resolve, reject) => {
       let settled = false;
@@ -960,6 +1152,14 @@ class CdpConnection {
       try {
         message = JSON.parse(event.data);
       } catch {
+        return;
+      }
+      if (typeof message.method === 'string' && typeof this.onEvent === 'function') {
+        try {
+          this.onEvent(message.method, message.params);
+        } catch {
+          // Listener errors must never disrupt CDP request correlation.
+        }
         return;
       }
       const waiter = this.pending.get(message.id);
@@ -987,7 +1187,7 @@ class CdpConnection {
     };
   }
 
-  send(method, params) {
+  send(method, params, timeoutMs = this.timeoutMs) {
     if (this.closed) {
       return Promise.reject(new Error('socket closed'));
     }
@@ -996,14 +1196,14 @@ class CdpConnection {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${method} timed out`));
-      }, this.timeoutMs);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       this.socket.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const result = await this.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+  async evaluate(expression, timeoutMs = this.timeoutMs) {
+    const result = await this.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
     if (result && result.exceptionDetails) {
       throw new Error(result.exceptionDetails.text ?? 'evaluation failed');
     }
@@ -1046,12 +1246,29 @@ export function devtoolsEndpoints(env = process.env, platform = process.platform
     return [];
   }
   const join = platform === 'win32' ? path.win32.join : path.posix.join;
-  return [
+  const list = [
     { app: 'app', file: join(appData, 'Antigravity', 'DevToolsActivePort') },
     { app: 'ide', file: join(appData, 'Antigravity IDE', 'DevToolsActivePort') },
     { app: 'vscode', file: join(appData, 'Code', 'DevToolsActivePort') },
     { app: 'vscode', file: join(appData, 'Code - Insiders', 'DevToolsActivePort') },
   ];
+  // Discover additional Antigravity channels (Canary, Beta, Insiders, custom profiles) automatically.
+  try {
+    const known = new Set(list.map((entry) => entry.file.toLowerCase()));
+    for (const entry of fs.readdirSync(appData, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !/^antigravity/i.test(entry.name)) continue;
+      const file = join(appData, entry.name, 'DevToolsActivePort');
+      if (known.has(file.toLowerCase())) continue;
+      if (fs.existsSync(file)) {
+        const app = /ide/i.test(entry.name) ? 'ide' : 'app';
+        list.push({ app, file });
+        known.add(file.toLowerCase());
+      }
+    }
+  } catch {
+    // Missing or unreadable config root (e.g. unit tests with virtual paths).
+  }
+  return list;
 }
 
 /** Parse `--cdp-port 9222,9223` without turning a typo into a random port. */
@@ -1116,13 +1333,68 @@ export function readRendererContext() {
   for (let index = 0; index < key.length; index++) hash = ((hash << 5) - hash + key.charCodeAt(index)) | 0;
   const rawModel = document.querySelector('[data-testid="model-selector-trigger"], [data-testid*="model-selector"], [data-testid*="model-picker"], button[aria-label*="Model" i]')?.textContent?.trim().slice(0, 160) || null;
   const modelName = rawModel ? rawModel.replace(/\s*(?:New|Notice|Unavailable|Beta|Preview)\s*$/i, '').trim() || null : null;
-  return { port, conversationId, viewState, contextKey: String(hash), modelName, productName: window.__APP_CONFIG__?.productName || null };
+  return {
+    port,
+    conversationId,
+    viewState,
+    contextKey: String(hash),
+    modelName,
+    productName: window.__APP_CONFIG__?.productName || null,
+    appVersion: typeof window.__APP_CONFIG__?.appVersion === 'string' ? window.__APP_CONFIG__.appVersion.trim() || null : null,
+  };
 }
 
 export const RENDERER_CONTEXT = `(${readRendererContext.toString()})()`;
 
+/** Extract a CSRF request token from a CDP Network.requestWillBeSent event on the same loopback backend port. */
+export function extractCsrfHeader(params, expectedPort) {
+  const url = params?.request?.url;
+  const headers = params?.request?.headers;
+  if (typeof url !== 'string' || !headers || typeof headers !== 'object') return null;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname)) return null;
+  if (expectedPort && Number(parsed.port) !== expectedPort) return null;
+  for (const [key, value] of Object.entries(headers)) {
+    if (!/^x-(?:[a-z0-9-]+-)?csrf-token$/i.test(key)) continue;
+    if (typeof value === 'string' && value.length > 0 && value.length <= 512 && !/\s/.test(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+/** Read the loopback CSRF token from the renderer's runtime config. Memory-only; never logged or persisted. */
+export const RENDERER_TOKEN = `(function () {
+  var cfg = window.__APP_CONFIG__;
+  if (!cfg || typeof cfg !== 'object') return null;
+  if (typeof cfg.csrfToken === 'string' && cfg.csrfToken.length > 0 && cfg.csrfToken.length <= 512) return cfg.csrfToken;
+  for (var key in cfg) {
+    if (/csrf.*token|token.*csrf/i.test(key) && typeof cfg[key] === 'string' && cfg[key].length > 0 && cfg[key].length <= 512) {
+      return cfg[key];
+    }
+  }
+  return null;
+})()`;
+
 /** A missing conversation is a named state, never a fabricated measurement. */
 export function selectionPayload(viewState, app = null) {
+  if (viewState === 'unauthorized') {
+    const title = 'Authorization needed';
+    return {
+      show: true, density: 'full', essentials: title, full: title, color: '#e5534b', title, aria: title,
+      card: {
+        app: app || 'Antigravity', title, percent: null, percentText: 'Locked', color: '#e5534b',
+        sourceLabel: 'Auth',
+        volumeText: 'Backend requires a request token. Reconnecting via DevTools…',
+        remainingText: null, model: null, session: null, limits: null, updatedText: 'No reading yet',
+      },
+    };
+  }
   const fresh = viewState === 'new-thread';
   const title = fresh ? 'New thread' : viewState === 'conversation' ? 'Switching conversation' : 'Conversation not identified';
   return {
@@ -1139,6 +1411,22 @@ export function selectionPayload(viewState, app = null) {
 /** Never substitute another conversation when the renderer has an explicit selection. */
 export function rendererPayload(snapshot, instance, context) {
   const app = appName(instance.backend.app);
+  if (snapshot?.status === 'unauthorized' && instance.backend.reachable === false) {
+    const payload = selectionPayload('unauthorized', app);
+    if (payload.card) {
+    const email = typeof snapshot?.account?.email === 'string' && snapshot.account.email.trim()
+      ? snapshot.account.email.trim()
+      : null;
+    payload.card.accountEmail = email;
+    payload.card.maskedEmail = email ? maskEmailAddress(email) : null;
+    payload.card.maskEmailDefault = snapshot?.prefs?.maskPersonalInfo !== false;
+  }
+  payload.snippetPrefs = snippetPreferences(snapshot.prefs || {});
+    payload.density = snapshot.prefs?.displayMode || 'full';
+    payload.contextKey = context.contextKey;
+    payload.modelKey = context.modelName || '';
+    return payload;
+  }
   const scoped = { ...snapshot, conversation: instance.conversation, backend: instance.backend,
     quota: instance.quota || (snapshot.backend?.id === instance.backend.id ? snapshot.quota : undefined) };
   const matches = context.viewState === 'conversation' && instance.conversation && instance.conversation.id === context.conversationId;
@@ -1147,6 +1435,14 @@ export function rendererPayload(snapshot, instance, context) {
     : selectionPayload(context.viewState, app);
   if (!payload.show) Object.assign(payload, selectionPayload('conversation', app));
   if (!matches || payload.card.percent === null) decorateQuota(payload, scoped, context.modelName || instance.conversation?.modelName);
+  if (payload.card) {
+    const email = typeof snapshot?.account?.email === 'string' && snapshot.account.email.trim()
+      ? snapshot.account.email.trim()
+      : null;
+    payload.card.accountEmail = email;
+    payload.card.maskedEmail = email ? maskEmailAddress(email) : null;
+    payload.card.maskEmailDefault = snapshot?.prefs?.maskPersonalInfo !== false;
+  }
   payload.snippetPrefs = snippetPreferences(snapshot.prefs || {});
   payload.density = snapshot.prefs?.displayMode || 'full';
   payload.contextKey = context.contextKey;
@@ -1238,6 +1534,39 @@ function appName(app) {
  * picture of its own backend. Several hosts can run at once; a shared push would
  * make the desktop badge report the IDE's conversation.
  */
+/**
+ * Only a local/app page can host the badge. Workers, extensions, our own companion dashboard,
+ * and external websites opened in Antigravity's built-in browser (e.g. gemini.google.com) are rejected.
+ */
+export function isAttachableTarget(target, dashboardUrl = null) {
+  if (!target || target.type !== 'page' || typeof target.webSocketDebuggerUrl !== 'string') {
+    return false;
+  }
+  if (typeof target.url === 'string' && target.url.length > 0) {
+    let parsed;
+    try {
+      parsed = new URL(target.url);
+    } catch {
+      return false;
+    }
+    const proto = parsed.protocol;
+    const isLocalHost = ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname);
+    const isAppProto = proto === 'vscode-webview:' || proto === 'vscode-file:' || proto === 'file:';
+    if (!isAppProto && !((proto === 'http:' || proto === 'https:') && isLocalHost)) {
+      return false;
+    }
+    if (dashboardUrl) {
+      try {
+        const dash = new URL(dashboardUrl);
+        if (parsed.origin === dash.origin) return false;
+      } catch {
+        // Ignore malformed dashboardUrl.
+      }
+    }
+  }
+  return true;
+}
+
 export class BadgeInjector {
   constructor(options = {}) {
     this.logger = options.logger ?? (() => {});
@@ -1255,6 +1584,8 @@ export class BadgeInjector {
     this.probedPages = 0;
     this.onUpdateSetting = options.onUpdateSetting ?? (() => {});
     this.onObserved = options.onObserved ?? (() => {});
+    this.onToken = options.onToken ?? (() => {});
+    this.onAppVersion = options.onAppVersion ?? (() => {});
     this.onRefresh = options.onRefresh ?? (() => {});
     this.checkingRefresh = false;
     this.heartbeat = setInterval(() => {
@@ -1406,7 +1737,7 @@ export class BadgeInjector {
     let probed = 0;
 
     for (const target of targets) {
-      if (!target.webSocketDebuggerUrl) {
+      if (!isAttachableTarget(target, this.dashboardUrl)) {
         continue;
       }
       const key = `${port}:${target.id}`;
@@ -1432,10 +1763,13 @@ export class BadgeInjector {
           target,
           backendPort: null,
           app: null,
+          appVersion: null,
           observed: null,
           viewState: 'unknown',
           contextKey: null,
           modelName: null,
+          tokenSentForPort: null,
+          networkSniffing: false,
           contextAt: 0,
           limitsAt: 0,
           shown: null,
@@ -1501,10 +1835,147 @@ export class BadgeInjector {
     renderer.viewState = context.viewState || 'unknown';
     renderer.contextKey = context.contextKey;
     renderer.modelName = typeof context.modelName === 'string' ? context.modelName : null;
+    if (typeof context.appVersion === 'string' && context.appVersion && context.appVersion !== renderer.appVersion) {
+      renderer.appVersion = context.appVersion;
+      this.onAppVersion(context.appVersion);
+    }
     if (renderer.backendPort) {
+      if (renderer.tokenSentForPort !== renderer.backendPort) {
+        let token = null;
+        try {
+          token = await renderer.connection.evaluate(RENDERER_TOKEN);
+        } catch {
+          // Token unavailable or page navigated; passive capture or Tier-3 fallback will handle it.
+        }
+        if (typeof token === 'string' && token.length > 0 && token.length <= 512 && !/\s/.test(token)) {
+          renderer.tokenSentForPort = renderer.backendPort;
+          this.onToken(renderer.backendPort, token);
+        } else if (!renderer.networkSniffing) {
+          // Tier 2b: if a future Antigravity build moves the token out of __APP_CONFIG__ into a closure,
+          // passively observe the loopback request header once via CDP Network events, then disable.
+          this.armNetworkTokenCapture(renderer);
+        }
+      }
       // A null reading is meaningful: a new-chat page must not keep showing the
       // previous conversation.
       this.onObserved(renderer.backendPort, conversationId, renderer.viewState, renderer.modelName);
+    }
+  }
+
+  armNetworkTokenCapture(renderer) {
+    if (this.disposed || renderer.networkSniffing || renderer.connection.closed) return;
+    renderer.networkSniffing = true;
+    const expectedPort = renderer.backendPort;
+    renderer.connection.onEvent = (method, params) => {
+      if (method !== 'Network.requestWillBeSent') return;
+      const captured = extractCsrfHeader(params, expectedPort);
+      if (!captured) return;
+      renderer.networkSniffing = false;
+      renderer.connection.onEvent = null;
+      renderer.tokenSentForPort = expectedPort;
+      void renderer.connection.send('Network.disable').catch(() => {});
+      this.onToken(expectedPort, captured);
+    };
+    void renderer.connection.send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 }).catch(() => {
+      renderer.networkSniffing = false;
+      renderer.connection.onEvent = null;
+    });
+  }
+
+  /**
+   * Focus or open the Antigravity Monitor dashboard inside the foreground Antigravity session's right-side panel.
+   * Prefers the visible/focused renderer and reuses an existing "Antigravity Monitor" tab when present.
+   */
+  async openInAppPanel() {
+    if (this.disposed) return false;
+    await this.ensureConnections();
+    const candidates = [...this.renderers.values()].filter((entry) => !entry.connection.closed);
+    if (candidates.length === 0) return false;
+    let chosen = candidates[0];
+    if (candidates.length > 1) {
+      let bestScore = -1;
+      for (const entry of candidates) {
+        try {
+          const score = await entry.connection.evaluate('(document.hasFocus() ? 2 : 0) + (document.hidden ? 0 : 1)');
+          if (typeof score === 'number' && score > bestScore) {
+            bestScore = score;
+            chosen = entry;
+          }
+        } catch {
+          // Ignore unresponsive renderer.
+        }
+      }
+    }
+    try {
+      const outcome = await chosen.connection.evaluate(
+        `window.__agmOpenPanel ? window.__agmOpenPanel(${JSON.stringify(this.dashboardUrl)}) : 'unavailable'`,
+        6000,
+      );
+      return outcome === 'focused' || outcome === 'opened' || outcome === 'navigated';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Tier-3 same-origin RPC fallback: runs inside the attached renderer page when
+   * direct loopback RPC receives 401 and no readable token was exposed.
+   */
+  async callRpc(port, method, body = {}, options = {}) {
+    if (this.disposed) {
+      throw new RpcError('aborted', 'Badge bridge disposed');
+    }
+    const renderer = [...this.renderers.values()].find((entry) => entry.backendPort === port && !entry.connection.closed);
+    if (!renderer) {
+      throw new RpcError('unauthorized', 'No attached renderer for this backend port');
+    }
+    const timeoutMs = Number.isInteger(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 15_000;
+    const maxBytes = Number.isInteger(options.maxBytes) && options.maxBytes > 0 ? options.maxBytes : 128 * 1024 * 1024;
+    const expr = `(async function () {
+      var ac = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = ac ? setTimeout(function () { ac.abort(); }, ${timeoutMs}) : null;
+      try {
+        var headers = { 'content-type': 'application/json', 'connect-protocol-version': '1', 'accept': 'application/json' };
+        var cfg = window.__APP_CONFIG__;
+        if (cfg && typeof cfg.csrfToken === 'string' && cfg.csrfToken) headers['x-codeium-csrf-token'] = cfg.csrfToken;
+        var res = await fetch(${JSON.stringify(`${SERVICE_PATH}/${method}`)}, {
+          method: 'POST',
+          credentials: 'include',
+          headers: headers,
+          body: ${JSON.stringify(JSON.stringify(body ?? {}))},
+          signal: ac ? ac.signal : undefined
+        });
+        var text = await res.text();
+        if (text.length > ${maxBytes}) return { ok: false, status: res.status, overflow: true };
+        return { ok: res.ok, status: res.status, text: text };
+      } catch (err) {
+        return { ok: false, status: 0, error: String(err && err.message ? err.message : err) };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    })()`;
+    const result = await renderer.connection.evaluate(expr, timeoutMs + 2000);
+    if (!result || typeof result !== 'object') {
+      throw new RpcError('network', 'Renderer RPC returned no result');
+    }
+    if (result.overflow) {
+      throw new RpcError('payload_too_large', `Response exceeded the ${Math.round(maxBytes / (1024 * 1024))} MB limit`, result.status || null);
+    }
+    if (!result.ok) {
+      const status = Number(result.status) || 0;
+      const code = status === 401 || status === 403 ? 'unauthorized'
+        : status === 404 ? 'not_found'
+        : status === 400 || status === 422 ? 'invalid_argument'
+        : status >= 500 ? 'unavailable'
+        : 'network';
+      throw new RpcError(code, result.error || result.text?.slice(0, 300) || `HTTP ${status}`, status || null);
+    }
+    const text = typeof result.text === 'string' ? result.text : '';
+    if (!text.trim()) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new RpcError('protocol', `Malformed JSON response (${text.length} bytes)`, result.status || null);
     }
   }
 
@@ -1523,6 +1994,18 @@ export class BadgeInjector {
       conversationId: renderer.observed,
     });
     if (!instance) {
+      if (this.latest.status === 'unauthorized') {
+        renderer.tokenSentForPort = null;
+        const payload = selectionPayload('unauthorized', appName(renderer.app ?? renderer.appHint));
+        payload.snippetPrefs = snippetPreferences(this.latest.prefs || {});
+        payload.density = this.latest.prefs?.displayMode || 'full';
+        payload.contextKey = renderer.contextKey;
+        payload.modelKey = renderer.modelName || '';
+        if (payload.card) payload.card.dashboardUrl = this.dashboardUrl;
+        await renderer.connection.evaluate(`window.__agmApply(${JSON.stringify(payload)})`);
+        renderer.shown = true;
+        return;
+      }
       if (renderer.shown !== false) {
         renderer.shown = false;
         await renderer.connection.evaluate('window.__agmApply({show:false})');
@@ -1640,6 +2123,14 @@ export function toPayload(snapshot, app = null, modelNameOverride = null) {
       updatedText: timeOf(usage.measuredAt || snapshot.generatedAt),
     },
   };
+  if (payload.card) {
+    const email = typeof snapshot?.account?.email === 'string' && snapshot.account.email.trim()
+      ? snapshot.account.email.trim()
+      : null;
+    payload.card.accountEmail = email;
+    payload.card.maskedEmail = email ? maskEmailAddress(email) : null;
+    payload.card.maskEmailDefault = snapshot?.prefs?.maskPersonalInfo !== false;
+  }
   payload.snippetPrefs = snippetPreferences(snapshot.prefs || {});
   decorateQuota(payload, snapshot, modelNameOverride || model);
   return payload;
@@ -1682,6 +2173,15 @@ function decorateQuota(payload, snapshot, modelName) {
       ? formatRate(snapshot.conversation.usage.tokPerSec)
       : null,
   };
+}
+
+function maskEmailAddress(email) {
+  const at = email.indexOf('@');
+  if (at <= 0) return '•••';
+  const local = email.slice(0, at);
+  const domain = email.slice(at);
+  const visible = local.length <= 2 ? local.slice(0, 1) : local.slice(0, 2);
+  return `${visible}•••${domain}`;
 }
 
 function formatPercent(value) {
