@@ -45,7 +45,8 @@ test('devtoolsEndpoints discovers additional Antigravity channel directories aut
   const badge = await dynamicImport(pathToFileURL(file).href);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agm-cdp-'));
   try {
-    const canaryDir = path.join(root, 'Antigravity Canary');
+    const base = process.platform === 'darwin' ? path.join(root, 'Library', 'Application Support') : root;
+    const canaryDir = path.join(base, 'Antigravity Canary');
     fs.mkdirSync(canaryDir, { recursive: true });
     fs.writeFileSync(path.join(canaryDir, 'DevToolsActivePort'), '9333\n/devtools/browser/test\n');
     const endpoints = badge.devtoolsEndpoints({ APPDATA: root, XDG_CONFIG_HOME: root }, process.platform, root);
