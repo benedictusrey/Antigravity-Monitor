@@ -35,6 +35,63 @@
     state.tab = persisted.tab;
   }
 
+  // ------------------------------------------------------------------- theme
+
+  const THEME_STORAGE_KEY = 'agm-theme';
+
+  function resolvedTheme() {
+    const explicit = document.documentElement.getAttribute('data-theme');
+    if (explicit === 'light' || explicit === 'dark') return explicit;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+
+  function applyTheme(mode) {
+    if (mode === 'light' || mode === 'dark') {
+      document.documentElement.setAttribute('data-theme', mode);
+      try { localStorage.setItem(THEME_STORAGE_KEY, mode); } catch (_) {}
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      try { localStorage.removeItem(THEME_STORAGE_KEY); } catch (_) {}
+    }
+    const current = resolvedTheme();
+    const btn = document.getElementById('btn-theme');
+    if (btn) {
+      const next = current === 'light' ? 'dark' : 'light';
+      btn.setAttribute('aria-label', 'Switch to ' + next + ' theme');
+      btn.setAttribute('title', 'Switch to ' + next + ' theme (T)');
+      const sun = btn.querySelector('.theme-icon--sun');
+      const moon = btn.querySelector('.theme-icon--moon');
+      if (sun) {
+        if (current === 'light') sun.setAttribute('hidden', '');
+        else sun.removeAttribute('hidden');
+      }
+      if (moon) {
+        if (current !== 'light') moon.setAttribute('hidden', '');
+        else moon.removeAttribute('hidden');
+      }
+    }
+  }
+
+  function toggleTheme() {
+    applyTheme(resolvedTheme() === 'light' ? 'dark' : 'light');
+  }
+
+  (function initTheme() {
+    let saved = null;
+    try { saved = localStorage.getItem(THEME_STORAGE_KEY); } catch (_) {}
+    applyTheme(saved === 'light' || saved === 'dark' ? saved : null);
+    const btn = document.getElementById('btn-theme');
+    if (btn) btn.addEventListener('click', toggleTheme);
+    if (typeof URLSearchParams === 'function' && new URLSearchParams(location.search).get('panel') === '1') {
+      document.body.setAttribute('data-panel', '1');
+      const closeBtn = document.getElementById('btn-close-panel');
+      if (closeBtn) {
+        closeBtn.hidden = false;
+        closeBtn.addEventListener('click', function () { window.close(); });
+      }
+    }
+  })();
+
   // ---------------------------------------------------------------- utilities
 
   function el(tag, options, children) {
@@ -303,6 +360,9 @@
     if (event.key === 'r' || event.key === 'R') {
       event.preventDefault();
       triggerRefresh();
+    } else if (event.key === 't' || event.key === 'T') {
+      event.preventDefault();
+      toggleTheme();
     } else if (event.key >= '1' && event.key <= '4') {
       const targetTab = TABS[Number(event.key) - 1];
       if (targetTab) selectTab(targetTab);
@@ -390,6 +450,8 @@
         return { label: 'Connecting', className: 'chip chip--neutral' };
       case 'disconnected':
         return { label: 'Standby', className: 'chip chip--neutral' };
+      case 'unauthorized':
+        return { label: 'Authorization needed', className: 'chip chip--danger' };
       case 'error':
         if (!snapshot.backends || snapshot.backends.length === 0) {
           return { label: 'Standby', className: 'chip chip--neutral' };
@@ -428,6 +490,8 @@
       const ws = snapshot.conversation.workspace ? ' · ' + snapshot.conversation.workspace : '';
       subtitleNode.textContent = (app ? app + ' · ' : '') + snapshot.conversation.title + ws;
       subtitleNode.title = subtitleNode.textContent;
+    } else if (snapshot.status === 'unauthorized') {
+      subtitleNode.textContent = 'Antigravity is running · its backend needs a request token this monitor cannot read';
     } else if (noBackend && (snapshot.status === 'disconnected' || snapshot.status === 'error')) {
       subtitleNode.textContent = 'Waiting for Antigravity to launch';
     } else if (snapshot.lastError) {
@@ -688,11 +752,14 @@
       const isNewThread = (snapshot.instances || []).some(function (i) {
         return i.backend.active && i.viewState === 'new-thread';
       });
+      const unauthorized = snapshot.status === 'unauthorized';
       const title = !conversation
-        ? (!hasBackends ? 'Standby mode' : isNewThread ? 'New thread' : 'Waiting for a conversation')
+        ? (unauthorized ? 'Authorization needed' : !hasBackends ? 'Standby mode' : isNewThread ? 'New thread' : 'Waiting for a conversation')
         : 'No usage reported yet';
       const body = !conversation
-        ? (!hasBackends
+        ? (unauthorized
+          ? 'Antigravity is running, but its backend refuses requests without a token this monitor cannot read. Context and quota stay unavailable until that changes.'
+          : !hasBackends
           ? 'Antigravity is not running yet. Context and quota telemetry appear automatically the moment you launch it.'
           : isNewThread
             ? 'Ready in the composer. Context usage appears once the first response arrives.'
@@ -776,22 +843,23 @@
         ['output', 'Output', usage.output, '--seg-output'],
       ].filter(function (item) { return item[2] > 0; });
 
-      const promptTotal = usage.input + usage.cacheRead;
-      const cacheHitPct = promptTotal > 0 ? Math.round((usage.cacheRead / promptTotal) * 100) : null;
+      const promptTotal = usage.input + usage.cacheRead + usage.cacheCreate;
+      const cacheHitText = fmtRatio(usage.cacheRead, promptTotal);
       const compHead = el('div', { className: 'composition__head' }, [
         el('span', { text: 'Token breakdown' }),
-        cacheHitPct !== null && usage.cacheRead > 0
-          ? el('span', {}, [document.createTextNode('Cache hit '), el('strong', { text: cacheHitPct + '%' })])
+        cacheHitText && usage.cacheRead > 0
+          ? el('span', {}, [document.createTextNode('Cache hit '), el('strong', { text: cacheHitText })])
           : null,
       ]);
 
       const compTrack = el('div', { className: 'composition__track', attrs: { 'aria-label': 'Token breakdown bar' } });
       const compLegend = el('div', { className: 'composition__legend' });
       for (const [kind, label, amount, cssVar] of segs) {
-        const sharePct = Math.round((amount / totalMeasured) * 100);
+        const rawShare = (amount / totalMeasured) * 100;
+        const shareText = amount > 0 && rawShare < 0.5 ? '<1%' : Math.round(rawShare) + '%';
         const seg = el('div', {
           className: 'composition__seg composition__seg--' + kind,
-          attrs: { title: label + ': ' + fmtExact(amount) + ' tokens (' + sharePct + '%)' },
+          attrs: { title: label + ': ' + fmtExact(amount) + ' tokens (' + shareText + ')' },
         });
         seg.style.width = Math.max(0.5, (amount / denom) * 100).toFixed(2) + '%';
         compTrack.appendChild(seg);
@@ -803,7 +871,7 @@
             swatch,
             document.createTextNode(label + ' '),
             el('strong', { text: fmtTokens(amount) }),
-            el('span', { className: 'composition__share', text: sharePct + '%' }),
+            el('span', { className: 'composition__share', text: shareText }),
           ]),
         );
       }
@@ -901,27 +969,46 @@
     ];
   }
 
+  function fmtRatio(numerator, denominator) {
+    if (!denominator || denominator <= 0) return null;
+    if (numerator >= denominator) return '100%';
+    const pct = (numerator / denominator) * 100;
+    if (numerator > 0 && pct < 0.05) return '<0.1%';
+    const capped = Math.min(99.9, pct);
+    return (Math.round(capped * 10) / 10).toFixed(1).replace(/\.0$/, '') + '%';
+  }
+
   function kpiStrip(snapshot, conversation) {
     const usage = conversation.usage;
+    const totals = conversation.totals || { input: 0, cacheRead: 0, cacheCreate: 0, output: 0, calls: 0, costUsd: null };
     const uSummary = snapshot.usage;
-    const promptTotal = usage ? usage.input + usage.cacheRead : 0;
-    const cacheRatio = promptTotal > 0 ? Math.round((usage.cacheRead / promptTotal) * 100) + '%' : '—';
+    const sessionPrompt = totals.input + totals.cacheRead + totals.cacheCreate;
+    const turnPrompt = usage ? usage.input + usage.cacheRead + usage.cacheCreate : 0;
+    const useSession = totals.calls > 0 && sessionPrompt > 0;
+    const cacheRead = useSession ? totals.cacheRead : (usage ? usage.cacheRead : 0);
+    const cacheDenom = useSession ? sessionPrompt : turnPrompt;
+    const cacheRatio = fmtRatio(cacheRead, cacheDenom) || '—';
+    const outputSub = usage
+      ? (usage.output
+          ? (totals.output > usage.output ? fmtTokens(usage.output) + ' last · ' + fmtTokens(totals.output) + ' total' : fmtTokens(usage.output) + ' out tokens')
+          : 'No response yet')
+      : 'Waiting';
 
     const cells = [
       {
         label: 'Output speed',
         value: usage && usage.tokPerSec > 0 ? fmtRate(usage.tokPerSec) : '—',
-        sub: usage ? (usage.output ? fmtTokens(usage.output) + ' out tokens' : 'No response yet') : 'Waiting',
+        sub: outputSub,
       },
       {
         label: 'Cache hit ratio',
         value: cacheRatio,
-        sub: usage && usage.cacheRead > 0 ? fmtTokens(usage.cacheRead) + ' cached read' : 'Fresh prompt',
+        sub: cacheRead > 0 ? fmtTokens(cacheRead) + ' / ' + fmtTokens(cacheDenom) + ' prompt' : 'Fresh prompt',
       },
       {
         label: 'Session API equiv.',
-        value: conversation.totals.costUsd !== null ? fmtUsd(conversation.totals.costUsd) : '—',
-        sub: fmtExact(conversation.totals.calls) + ' model calls',
+        value: totals.costUsd !== null ? fmtUsd(totals.costUsd) : '—',
+        sub: fmtExact(totals.calls) + ' model calls',
       },
       {
         label: 'Observed today',

@@ -6,26 +6,29 @@
  */
 
 :root {
-  --ground: var(--vscode-editor-background, #0e1014);
-  --surface: var(--vscode-editorWidget-background, #14171f);
-  --surface-alt: var(--vscode-input-background, #1a1e28);
+  color-scheme: dark;
+  --ground: var(--vscode-editor-background, #0c0e12);
+  --surface: var(--vscode-editorWidget-background, #13161e);
+  --surface-alt: var(--vscode-input-background, #191d27);
   --surface-hover: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.055));
-  --border: var(--vscode-panel-border, #232735);
+  --border: var(--vscode-panel-border, #232836);
   --rule: var(--vscode-panel-border, #1c202c);
-  --border-strong: var(--vscode-contrastBorder, #343948);
-  --text: var(--vscode-editor-foreground, #f2f4f8);
-  --muted: var(--vscode-descriptionForeground, #8f96a8);
+  --border-strong: var(--vscode-contrastBorder, #343b4c);
+  --text: var(--vscode-editor-foreground, #f1f4f9);
+  --muted: var(--vscode-descriptionForeground, #8d95a7);
   --accent: var(--vscode-textLink-foreground, #4f94e8);
   --accent-solid: var(--vscode-button-background, #2b6cb0);
   --accent-solid-text: var(--vscode-button-foreground, #ffffff);
-  --ok: var(--vscode-charts-green, #3ec684);
-  --warn: var(--vscode-charts-yellow, #e0a83e);
+  --ok: var(--vscode-charts-green, #34c785);
+  --warn: var(--vscode-charts-yellow, #e2a93b);
   --danger: var(--vscode-charts-red, #ea586f);
   --focus: var(--vscode-focusBorder, #4f94e8);
+  --panel-shadow: none;
+  --track-bg: rgba(255, 255, 255, 0.06);
   --seg-input: #4f94e8;
   --seg-cache: #646d82;
   --seg-create: #9d7fe6;
-  --seg-output: #3ec684;
+  --seg-output: #34c785;
   --mono: var(--vscode-editor-font-family, "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   --ease-ui: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
@@ -34,32 +37,192 @@
   --m-press: 90ms;
   --m-slide: 240ms;
   --m-gauge: 360ms;
-  --radius: 4px;
-  --radius-sm: 3px;
+  --radius: 6px;
+  --radius-sm: 4px;
   --gap: 12px;
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0c0e12;
+  --surface: #13161e;
+  --surface-alt: #191d27;
+  --surface-hover: rgba(255, 255, 255, 0.055);
+  --border: #232836;
+  --rule: #1c202c;
+  --border-strong: #343b4c;
+  --text: #f1f4f9;
+  --muted: #8d95a7;
+  --accent: #4f94e8;
+  --accent-solid: #2b6cb0;
+  --accent-solid-text: #ffffff;
+  --ok: #34c785;
+  --warn: #e2a93b;
+  --danger: #ea586f;
+  --focus: #4f94e8;
+  --panel-shadow: none;
+  --track-bg: rgba(255, 255, 255, 0.06);
+  --seg-input: #4f94e8;
+  --seg-cache: #646d82;
+  --seg-create: #9d7fe6;
+  --seg-output: #34c785;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ground: #eef1f6;
+  --surface: #ffffff;
+  --surface-alt: #f5f7fb;
+  --surface-hover: rgba(17, 22, 34, 0.045);
+  --border: #d4dbe7;
+  --rule: #e4e9f2;
+  --border-strong: #b2bccd;
+  --text: #111622;
+  --muted: #515b70;
+  --accent: #145cd0;
+  --accent-solid: #145cd0;
+  --accent-solid-text: #ffffff;
+  --ok: #117846;
+  --warn: #a36000;
+  --danger: #c42537;
+  --focus: #145cd0;
+  --panel-shadow: 0 1px 2px rgba(17, 22, 34, 0.045);
+  --track-bg: rgba(17, 22, 34, 0.07);
+  --seg-input: #145cd0;
+  --seg-cache: #647087;
+  --seg-create: #6f42c1;
+  --seg-output: #117846;
+}
+
 @media (prefers-color-scheme: light) {
-  body[data-host="companion"] {
-    --ground: #f2f4f8;
+  :root:not([data-theme]) body[data-host="companion"] {
+    color-scheme: light;
+    --ground: #eef1f6;
     --surface: #ffffff;
-    --surface-alt: #eef1f6;
-    --surface-hover: rgba(17, 19, 24, 0.045);
-    --border: #d5dbe6;
-    --rule: #e4e8f0;
-    --border-strong: #b4bdcd;
-    --text: #111318;
-    --muted: #505766;
-    --accent: #0b5ed7;
-    --accent-solid: #0b5ed7;
-    --ok: #177336;
-    --warn: #9a6500;
-    --danger: #c92434;
-    --seg-input: #0b5ed7;
-    --seg-cache: #6b7280;
-    --seg-create: #7342cc;
-    --seg-output: #177336;
+    --surface-alt: #f5f7fb;
+    --surface-hover: rgba(17, 22, 34, 0.045);
+    --border: #d4dbe7;
+    --rule: #e4e9f2;
+    --border-strong: #b2bccd;
+    --text: #111622;
+    --muted: #515b70;
+    --accent: #145cd0;
+    --accent-solid: #145cd0;
+    --accent-solid-text: #ffffff;
+    --ok: #117846;
+    --warn: #a36000;
+    --danger: #c42537;
+    --focus: #145cd0;
+    --panel-shadow: 0 1px 2px rgba(17, 22, 34, 0.045);
+    --track-bg: rgba(17, 22, 34, 0.07);
+    --seg-input: #145cd0;
+    --seg-cache: #647087;
+    --seg-create: #6f42c1;
+    --seg-output: #117846;
   }
+}
+
+.btn.btn--theme,
+.btn.btn--close {
+  padding: 0 8px;
+  min-width: 30px;
+  justify-content: center;
+}
+
+body[data-panel="1"] {
+  background: var(--ground);
+}
+
+body[data-panel="1"] .shell {
+  padding: 0;
+  min-height: 100dvh;
+}
+
+body[data-panel="1"] .topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px 8px;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+body[data-panel="1"] .tabs {
+  background: var(--surface);
+  padding: 0 12px;
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+body[data-panel="1"] .content {
+  padding: 10px 12px 8px;
+}
+
+body[data-panel="1"] .footer {
+  padding: 6px 12px 10px;
+}
+
+.btn.btn--theme .theme-icon--sun {
+  display: block;
+}
+
+.btn.btn--theme .theme-icon--moon {
+  display: none;
+}
+
+:root[data-theme="light"] .btn.btn--theme .theme-icon--sun {
+  display: none;
+}
+
+:root[data-theme="light"] .btn.btn--theme .theme-icon--moon {
+  display: block;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .btn.btn--theme .theme-icon--sun {
+    display: none;
+  }
+  :root:not([data-theme]) .btn.btn--theme .theme-icon--moon {
+    display: block;
+  }
+}
+
+@media (max-width: 520px) {
+  .shell {
+    padding: 10px 12px 8px;
+  }
+  .topbar {
+    gap: 8px;
+    padding-bottom: 8px;
+  }
+  .brand__text h1 {
+    font-size: 15.5px;
+  }
+  .subtitle {
+    font-size: 11.5px;
+  }
+  .topbar-actions {
+    gap: 6px;
+  }
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .footer__keys {
+    display: none;
+  }
+}
+
+.panel,
+.kpi-strip,
+.overview-grid {
+  box-shadow: var(--panel-shadow);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 * {
@@ -75,6 +238,7 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  overflow-x: clip;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
@@ -182,16 +346,18 @@ body[data-host="editor"] .shell {
 /* --------------------------------------------------------------------- chips */
 
 .chip {
+  --chip-pad-x: 9px;
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 9px;
+  padding: 3px var(--chip-pad-x);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface);
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.35;
   white-space: nowrap;
   transition: background-color var(--m-out) var(--ease-ui), border-color var(--m-out) var(--ease-ui), transform var(--m-press) var(--ease-ui);
 }
@@ -208,21 +374,27 @@ body[data-host="editor"] .shell {
 .chip--streaming::after {
   content: "";
   position: absolute;
-  left: 9px;
+  left: var(--chip-pad-x);
   top: 50%;
   width: 6px;
   height: 6px;
-  margin-top: -3px;
   border-radius: 50%;
-  border: 1px solid currentColor;
+  background: currentColor;
+  transform-origin: center;
   pointer-events: none;
-  animation: live-halo 2.4s linear infinite;
+  animation: chip-halo 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@keyframes chip-halo {
+  0% { transform: translateY(-50%) scale(1); opacity: 0.55; }
+  75% { transform: translateY(-50%) scale(2.2); opacity: 0; }
+  100% { transform: translateY(-50%) scale(2.2); opacity: 0; }
 }
 
 @keyframes live-halo {
-  0% { transform: scale(1); opacity: 0.72; }
-  70% { transform: scale(2.35); opacity: 0; }
-  100% { transform: scale(2.35); opacity: 0; }
+  0% { transform: scale(1); opacity: 0.55; }
+  75% { transform: scale(2.2); opacity: 0; }
+  100% { transform: scale(2.2); opacity: 0; }
 }
 
 @keyframes pane-enter {
@@ -1353,11 +1525,11 @@ body[data-host="editor"] .shell {
 .dot--running::after {
   content: "";
   position: absolute;
-  inset: -1px;
+  inset: 0;
   border-radius: 50%;
-  border: 1px solid currentColor;
-  color: var(--ok);
-  animation: live-halo 2.4s linear infinite;
+  background: var(--ok);
+  transform-origin: center;
+  animation: live-halo 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
   pointer-events: none;
 }
 

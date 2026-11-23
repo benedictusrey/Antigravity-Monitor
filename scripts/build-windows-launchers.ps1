@@ -54,9 +54,15 @@ if(-not(Test-Path -LiteralPath $compiler)){$compiler=Join-Path $env:WINDIR 'Micr
 if(-not(Test-Path -LiteralPath $compiler)){throw 'The Windows .NET Framework C# compiler is required.'}
 foreach($installer in @($false,$true)){
     $name=if($installer){'Install Antigravity Monitor.exe'}else{'Antigravity Monitor.exe'}
-    $arguments=@('/nologo','/target:winexe','/platform:anycpu','/optimize+','/reference:System.Windows.Forms.dll',('/win32icon:'+(Join-Path $root 'media\icon.ico')),('/out:'+(Join-Path $root $name)))
-    if($installer){$arguments+='/define:INSTALLER'}
-    $arguments+=Join-Path $root 'tools\windows-launcher.cs'
+    $arguments=@('/nologo','/target:winexe','/platform:anycpu','/optimize+','/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll',('/win32icon:'+(Join-Path $root 'media\icon.ico')),('/out:'+(Join-Path $root $name)))
+    if($installer){
+        $arguments+='/define:INSTALLER'
+        $arguments+=Join-Path $root 'tools\windows-launcher.cs'
+    } else {
+        $arguments+='/reference:System.Web.Extensions.dll'
+        $arguments+=Join-Path $root 'tools\windows-launcher.cs'
+        $arguments+=Join-Path $root 'tools\windows-flyout.cs'
+    }
     & $compiler @arguments
     if($LASTEXITCODE -ne 0){throw "Failed to build $name"}
 }

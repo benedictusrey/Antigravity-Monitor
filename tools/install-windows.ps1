@@ -95,6 +95,8 @@ foreach ($editor in $editors) {
 }
 $installRoot = Join-Path $env:LOCALAPPDATA 'Antigravity Monitor'
 $appRoot = Join-Path $installRoot 'app'
+# Boot entries start the companion through this GUI launcher: it hides the console that PowerShell would otherwise show.
+$launcherExe = Join-Path $appRoot 'Antigravity Monitor.exe'
 $backupRoot = Join-Path $installRoot ('backups\' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 # Only the monitor on its own loopback port may be replaced; editors stay open.
 $listener = Get-NetTCPConnection -LocalPort 4599 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -119,6 +121,12 @@ try {
 } catch {}
 $taskRegistered = $false
 try {
+    # Stop any running installed tray host so Antigravity Monitor.exe can be replaced cleanly.
+    foreach ($trayProc in @(Get-CimInstance Win32_Process -Filter "Name = 'Antigravity Monitor.exe'" -ErrorAction SilentlyContinue)) {
+        if ($trayProc.ExecutablePath -and $trayProc.ExecutablePath.Equals($launcherExe, [StringComparison]::OrdinalIgnoreCase)) {
+            Stop-Process -Id $trayProc.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+    }
     if ($listener -and $previousHealthOk) {
         $stateFile = Join-Path $installRoot 'state.json'
         if (Test-Path -LiteralPath $stateFile) {
@@ -155,8 +163,8 @@ try {
         Copy-Item -LiteralPath $shortcutPath -Destination (Join-Path $backupRoot 'Antigravity Monitor.lnk')
     }
     $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $shortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $appRoot 'tools\start-companion.ps1') + '"'
+    $shortcut.TargetPath = $launcherExe
+    $shortcut.Arguments = '--companion'
     $shortcut.WorkingDirectory = $appRoot
     $shortcut.WindowStyle = 7
     $shortcut.Description = 'Automatically attaches Antigravity Monitor to supported local apps.'
@@ -174,16 +182,14 @@ try {
     try {
         $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
         if (Test-Path -LiteralPath $runKey) {
-            $runCmd = '"' + (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') + '" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $appRoot 'tools\start-companion.ps1') + '"'
+            $runCmd = '"' + $launcherExe + '" --companion'
             Set-ItemProperty -LiteralPath $runKey -Name 'AntigravityMonitor' -Value $runCmd
         }
     } catch {
         Write-Output ('Registry startup registration skipped: ' + $_.Exception.Message)
     }
     try {
-        $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $taskArg = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $appRoot 'tools\start-companion.ps1') + '" -Supervise'
-        $taskAction = New-ScheduledTaskAction -Execute $psExe -Argument $taskArg -WorkingDirectory $appRoot
+        $taskAction = New-ScheduledTaskAction -Execute $launcherExe -Argument '--companion --supervise' -WorkingDirectory $appRoot
         $taskTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
         $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
         Register-ScheduledTask -TaskName $taskName -Action $taskAction -Trigger $taskTrigger -Settings $taskSettings -Description 'Start Antigravity Monitor companion at sign-in and keep it running across Antigravity updates.' -Force | Out-Null
@@ -207,8 +213,8 @@ foreach ($editor in $installers) {
     & $editor.Cli --install-extension $VsixPath --force
     if ($LASTEXITCODE -ne 0) { $failures += $editor.Name }
 }
-& (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File (Join-Path $appRoot 'tools\start-companion.ps1')
-if ($LASTEXITCODE -ne 0) { throw 'Background companion failed to start. See the logs under LocalAppData\Antigravity Monitor.' }
+$companionStart = Start-Process -FilePath $launcherExe -ArgumentList '--companion' -Wait -PassThru
+if ($companionStart.ExitCode -ne 0) { throw 'Background companion failed to start. See companion-error.log under LocalAppData\Antigravity Monitor.' }
 Write-Output 'White Antigravity: companion installed, started, and enabled at sign-in.'
 Write-Output ('Runtime: ' + $appRoot)
 Write-Output ('Startup: ' + $shortcutPath)
