@@ -269,11 +269,18 @@ internal sealed class TrayFlyoutForm : Form
         {
             try
             {
-                using (var client = new WebClient())
+                var req = (HttpWebRequest)WebRequest.Create(_dashboardUrl + "/api/command");
+                req.Method = "POST";
+                req.ContentType = "application/json";
+                req.Timeout = 1500;
+                req.ReadWriteTimeout = 1500;
+                byte[] body = System.Text.Encoding.UTF8.GetBytes("{\"type\":\"refresh\"}");
+                req.ContentLength = body.Length;
+                using (var stream = req.GetRequestStream())
                 {
-                    client.Headers[HttpRequestHeader.ContentType] = "application/json";
-                    client.UploadString(_dashboardUrl + "/api/command", "POST", "{\"type\":\"refresh\"}");
+                    stream.Write(body, 0, body.Length);
                 }
+                using (req.GetResponse()) { }
             }
             catch { }
             FetchSnapshotAsync();
