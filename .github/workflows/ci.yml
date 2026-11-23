@@ -12,8 +12,8 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -23,5 +23,7 @@ jobs:
       - run: npm audit
       - if: runner.os == 'Windows'
         shell: powershell
-        run: .\scripts\build-windows-launchers.ps1
+        run: |
+          .\scripts\build-windows-launchers.ps1
+          .\scripts\check-windows-launchers.ps1
       - run: npm run package
