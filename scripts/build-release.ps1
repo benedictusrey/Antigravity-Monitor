@@ -13,7 +13,7 @@ foreach ($scriptName in @('Install Antigravity Monitor.sh','Install Antigravity 
     $raw = [IO.File]::ReadAllText((Join-Path $projectRoot $scriptName))
     if ($raw.Contains("`r`n")) { throw "POSIX script must use LF line endings: $scriptName" }
 }
-foreach ($required in @($vsix,'out\src\app\monitor.js','out\src\core\quota.js','media\icon.png','media\icon.ico','media\icon.icns','Antigravity Monitor.exe','Install Antigravity Monitor.exe','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh','assets\banners\antigravity-monitor-hero.jpg','assets\banners\antigravity-monitor-flyout.jpg','assets\banners\antigravity-monitor-features.jpg','assets\banners\antigravity-monitor-customization.jpg')) {
+foreach ($required in @($vsix,'out\src\app\monitor.js','out\src\core\quota.js','media\icon.png','media\icon.ico','media\icon.icns','Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor_Uninstaller.exe','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh','assets\banners\antigravity-monitor-hero.jpg','assets\banners\antigravity-monitor-flyout.jpg','assets\banners\antigravity-monitor-features.jpg','assets\banners\antigravity-monitor-customization.jpg')) {
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot $required) -PathType Leaf)) { throw "Build first; missing: $required" }
 }
 $staging = Join-Path $OutputDirectory 'staging'
@@ -32,7 +32,7 @@ foreach ($relative in $rootFiles) { Copy-Relative $relative $repository }
 foreach ($relative in @('src','tests','scripts','tools','media','assets','.github')) { Copy-Relative $relative $repository }
 foreach ($relative in @('docs\ARCHITECTURE.md','docs\AUDIT.md','docs\DESIGN.md','docs\screenshots')) { Copy-Relative $relative $repository }
 foreach ($relative in @('package.json','LICENSE','tools','media','assets','out\src',$vsix)) { Copy-Relative $relative $runtime }
-foreach ($relative in @('Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor.cmd','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh')) { Copy-Relative $relative $runtime }
+foreach ($relative in @('Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor_Uninstaller.exe','Antigravity Monitor.cmd','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh')) { Copy-Relative $relative $runtime }
 foreach ($relative in (Get-ChildItem -LiteralPath $projectRoot -Filter '*.md' -File | ForEach-Object Name)) { Copy-Relative $relative $runtime }
 foreach ($relative in @('docs\ARCHITECTURE.md','docs\AUDIT.md','docs\DESIGN.md','docs\screenshots')) { Copy-Relative $relative $runtime }
 Copy-Item -LiteralPath (Join-Path $projectRoot $vsix) -Destination (Join-Path $OutputDirectory $vsix)
@@ -47,11 +47,11 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($repository, $sourceZip, [IO.Compression.CompressionLevel]::Optimal, $true)
 
 $osTargets = @(
-    @{ Name = 'windows'; Zip = $windowsZip; Keep = @('Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor.cmd','Install Antigravity Monitor.cmd') }
+    @{ Name = 'windows'; Zip = $windowsZip; Keep = @('Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor_Uninstaller.exe','Antigravity Monitor.cmd','Install Antigravity Monitor.cmd') }
     @{ Name = 'macos'; Zip = $macosZip; Keep = @('Install Antigravity Monitor.command','Install Antigravity Monitor.sh','Antigravity Monitor.sh') }
     @{ Name = 'linux'; Zip = $linuxZip; Keep = @('Install Antigravity Monitor.sh','Antigravity Monitor.sh') }
 )
-$allLaunchers = @('Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor.cmd','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh')
+$allLaunchers = @('Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor_Uninstaller.exe','Antigravity Monitor.cmd','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh')
 $stageRoot = Join-Path $OutputDirectory '_os-stage'
 try {
     foreach ($os in $osTargets) {

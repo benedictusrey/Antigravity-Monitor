@@ -19,7 +19,7 @@ using System.Windows.Forms;
 
 internal static class Launcher
 {
-#if !INSTALLER
+#if !INSTALLER && !UNINSTALLER
     private const string DashboardUrl = "http://127.0.0.1:4599";
     private const string TrayMutexName = "Local\\AntigravityMonitorTray";
     private const string ShowFlyoutEventName = "Local\\AntigravityMonitorShowFlyout";
@@ -42,6 +42,8 @@ internal static class Launcher
     {
 #if INSTALLER
         const string command = "Install Antigravity Monitor.cmd";
+#elif UNINSTALLER
+        string command = Path.Combine("tools", "install-windows.ps1");
 #else
         const string command = "Antigravity Monitor.cmd";
         try { SetProcessDPIAware(); } catch { }
@@ -56,7 +58,54 @@ internal static class Launcher
             return 2;
         }
         if (arguments.Length == 1 && arguments[0] == "--verify-launcher") return 0;
-#if !INSTALLER
+#if UNINSTALLER
+        DialogResult confirm = MessageBox.Show(
+            "Uninstall Antigravity Monitor?\n\n" +
+            "This stops the background companion and system tray, removes sign-in startup entries, shortcuts, and editor extensions, and deletes the installed app under %LOCALAPPDATA%\\Antigravity Monitor.",
+            "Antigravity Monitor Uninstaller",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question,
+            MessageBoxDefaultButton.Button2);
+        if (confirm != DialogResult.Yes) return 0;
+        try
+        {
+            string powershell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
+            var start = new ProcessStartInfo
+            {
+                FileName = powershell,
+                Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + target + "\" -Uninstall -Purge",
+                WorkingDirectory = root,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            using (Process child = Process.Start(start))
+            {
+                if (child == null) return 1;
+                string stderr = child.StandardError.ReadToEnd();
+                child.WaitForExit();
+                if (child.ExitCode != 0)
+                {
+                    MessageBox.Show(
+                        string.IsNullOrWhiteSpace(stderr) ? "Uninstall failed (exit code " + child.ExitCode + ")." : stderr.Trim(),
+                        "Antigravity Monitor Uninstaller",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return child.ExitCode;
+                }
+            }
+            MessageBox.Show("Antigravity Monitor has been uninstalled.",
+                "Antigravity Monitor Uninstaller", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return 0;
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show(error.Message, "Antigravity Monitor Uninstaller", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return 1;
+        }
+#elif !INSTALLER
         if (Array.IndexOf(arguments, "--tray") >= 0)
         {
             return RunTray(root, Array.IndexOf(arguments, "--show") >= 0);
@@ -94,7 +143,7 @@ internal static class Launcher
 #endif
     }
 
-#if !INSTALLER
+#if !INSTALLER && !UNINSTALLER
     // Windows Terminal, the default console on Windows 11, ignores the Hidden window style and still
     // shows a window for a console app. CreateNoWindow is the only reliable way to avoid that window.
     private static int StartCompanion(string root, bool supervise)

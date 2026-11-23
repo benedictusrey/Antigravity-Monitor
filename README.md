@@ -36,7 +36,7 @@ Download the archive for your OS (**Antigravity-Monitor-1.3.0-windows.zip**, **A
 
 | Platform | Install from the extracted folder | Startup |
 |---|---|---|
-| **Windows** | Open **Install Antigravity Monitor.exe** (or `.cmd`). | Silent sign-in startup via `Antigravity Monitor.exe --companion`, native Windows 11 system tray + lightweight GDI+ flyout (no Edge/WebView2), `AntigravityMonitor` crash-restarting Scheduled Task, **Antigravity (with Monitor)** Start Menu shortcut, and VS Code / Antigravity IDE / Insiders VSIX. |
+| **Windows** | Open **Install Antigravity Monitor.exe** (or `.cmd`). Run **Antigravity Monitor_Uninstaller.exe** (or Start Menu **Uninstall Antigravity Monitor**) for a clean removal. | Silent sign-in startup via `Antigravity Monitor.exe --companion`, native Windows 11 system tray + lightweight GDI+ flyout (no Edge/WebView2), `AntigravityMonitor` crash-restarting Scheduled Task, **Antigravity (with Monitor)** Start Menu shortcut, and VS Code / Antigravity IDE / Insiders VSIX. |
 | **macOS** | Double-click **Install Antigravity Monitor.command** or run `sh "Install Antigravity Monitor.command"`. | Auto-locates `node` (Homebrew, nvm, fnm, volta), sets LaunchAgent, installs editor VSIX. |
 | **Linux** | Run `./"Install Antigravity Monitor.sh"` (or `sh "Install Antigravity Monitor.sh"`). | Auto-locates `node`, adds XDG autostart + desktop app entry, installs editor VSIX. |
 

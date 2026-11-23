@@ -52,11 +52,15 @@ try {
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if(-not(Test-Path -LiteralPath $compiler)){$compiler=Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'}
 if(-not(Test-Path -LiteralPath $compiler)){throw 'The Windows .NET Framework C# compiler is required.'}
-foreach($installer in @($false,$true)){
-    $name=if($installer){'Install Antigravity Monitor.exe'}else{'Antigravity Monitor.exe'}
+foreach($target in @(
+    @{ Name = 'Antigravity Monitor.exe'; Define = $null; IncludeFlyout = $true },
+    @{ Name = 'Install Antigravity Monitor.exe'; Define = 'INSTALLER'; IncludeFlyout = $false },
+    @{ Name = 'Antigravity Monitor_Uninstaller.exe'; Define = 'UNINSTALLER'; IncludeFlyout = $false }
+)){
+    $name=$target.Name
     $arguments=@('/nologo','/target:winexe','/platform:anycpu','/optimize+','/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll',('/win32icon:'+(Join-Path $root 'media\icon.ico')),('/out:'+(Join-Path $root $name)))
-    if($installer){
-        $arguments+='/define:INSTALLER'
+    if($target.Define){
+        $arguments+='/define:'+$target.Define
         $arguments+=Join-Path $root 'tools\windows-launcher.cs'
     } else {
         $arguments+='/reference:System.Web.Extensions.dll'

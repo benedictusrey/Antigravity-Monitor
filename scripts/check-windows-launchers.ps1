@@ -10,7 +10,7 @@ if([Text.Encoding]::ASCII.GetString($icns,0,4) -ne 'icns'){throw 'Invalid ICNS s
 $sizeBytes=$icns[4..7];[Array]::Reverse($sizeBytes)
 if([BitConverter]::ToInt32($sizeBytes,0) -ne $icns.Length){throw 'Invalid ICNS length'}
 $expectedVersion=(Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
-foreach($name in @('Antigravity Monitor.exe','Install Antigravity Monitor.exe')){
+foreach($name in @('Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor_Uninstaller.exe')){
     $file=Join-Path $root $name
     $version=[Diagnostics.FileVersionInfo]::GetVersionInfo($file)
     if($version.ProductVersion -ne $expectedVersion){throw "Wrong version in $name (expected $expectedVersion, got $($version.ProductVersion))"}

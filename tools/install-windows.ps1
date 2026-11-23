@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$PackageRoot, [string]$VsixPath, [switch]$Uninstall, [switch]$RefreshShortcuts, [string]$AntigravityExe)
+param([string]$PackageRoot, [string]$VsixPath, [switch]$Uninstall, [switch]$Purge, [switch]$RefreshShortcuts, [string]$AntigravityExe)
 $ErrorActionPreference = 'Stop'
 $taskName = 'AntigravityMonitor'
 
@@ -50,8 +50,12 @@ if ($RefreshShortcuts) {
     exit 0
 }
 if ($Uninstall) {
+    $installRoot = Join-Path $env:LOCALAPPDATA 'Antigravity Monitor'
+    $appRoot = Join-Path $installRoot 'app'
+    $launcherExe = Join-Path $appRoot 'Antigravity Monitor.exe'
     try {
         if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         }
     } catch {}
@@ -63,7 +67,50 @@ if ($Uninstall) {
     Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Startup')) 'Antigravity Monitor.lnk') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $programsDir 'Antigravity (with Monitor).lnk') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $programsDir 'Antigravity Monitor') -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Output ('Startup and shortcuts removed. Usage, settings, and runtime retained under ' + (Join-Path $env:LOCALAPPDATA 'Antigravity Monitor') + '.')
+    foreach ($trayProc in @(Get-CimInstance Win32_Process -Filter "Name = 'Antigravity Monitor.exe'" -ErrorAction SilentlyContinue)) {
+        if ($trayProc.ExecutablePath -and $trayProc.ExecutablePath.Equals($launcherExe, [StringComparison]::OrdinalIgnoreCase)) {
+            Stop-Process -Id $trayProc.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $listener = Get-NetTCPConnection -LocalPort 4599 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($listener) {
+        try {
+            $proc = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $listener.OwningProcess) -ErrorAction SilentlyContinue
+            if ($proc -and $proc.Name -eq 'node.exe' -and $proc.CommandLine -match 'monitor-server\.mjs(?:"|\s|$)') {
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:4599/api/health' -TimeoutSec 2
+                if ($health.service -eq 'antigravity-monitor') {
+                    Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
+                }
+            }
+        } catch {}
+    }
+    foreach ($editor in @(
+        @{ Command = 'antigravity-ide.cmd'; Folder = 'Antigravity IDE' },
+        @{ Command = 'code.cmd'; Folder = 'Microsoft VS Code' },
+        @{ Command = 'code-insiders.cmd'; Folder = 'Microsoft VS Code Insiders' }
+    )) {
+        $cli = @(
+            (Join-Path $env:LOCALAPPDATA ('Programs\' + $editor.Folder + '\bin\' + $editor.Command)),
+            (Join-Path $env:ProgramFiles ($editor.Folder + '\bin\' + $editor.Command))
+        ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+        if (-not $cli) { $cli = (Get-Command $editor.Command -ErrorAction SilentlyContinue).Source }
+        if ($cli) {
+            try { & $cli --uninstall-extension antigravity-monitor.antigravity-monitor | Out-Null } catch {}
+        }
+    }
+    if ($Purge -and (Test-Path -LiteralPath $installRoot)) {
+        $runningInsideInstall = $PSScriptRoot.StartsWith($installRoot, [StringComparison]::OrdinalIgnoreCase)
+        if ($runningInsideInstall) {
+            $cmdExe = Join-Path ([Environment]::GetFolderPath('System')) 'cmd.exe'
+            Start-Process -FilePath $cmdExe -ArgumentList ('/d /c ping -n 3 127.0.0.1 >nul & rmdir /s /q "' + $installRoot + '"') -WindowStyle Hidden | Out-Null
+            Write-Output ('Antigravity Monitor uninstalled. Scheduled removal of ' + $installRoot + '.')
+        } else {
+            Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Output ('Antigravity Monitor uninstalled cleanly and removed ' + $installRoot + '.')
+        }
+    } else {
+        Write-Output ('Startup and shortcuts removed. Usage, settings, and runtime retained under ' + $installRoot + '.')
+    }
     exit 0
 }
 if (-not $PackageRoot) { $PackageRoot = Split-Path -Parent $PSScriptRoot }
@@ -138,8 +185,9 @@ try {
         if (-not $previousMonitor.WaitForExit(5000)) { throw 'Previous monitor did not exit; replacement was not started.' }
         Write-Output 'Stopped the previous monitor process; the existing persisted state file was backed up.'
     }
-    foreach ($relative in @('package.json', 'LICENSE', 'tools', 'media', 'out\src', 'Antigravity Monitor.exe', 'Antigravity Monitor.cmd')) {
+    foreach ($relative in @('package.json', 'LICENSE', 'tools', 'media', 'out\src', 'Antigravity Monitor.exe', 'Antigravity Monitor.cmd', 'Antigravity Monitor_Uninstaller.exe')) {
         $source = Join-Path $PackageRoot $relative
+        if (-not (Test-Path -LiteralPath $source)) { continue }
         $target = Join-Path $appRoot $relative
         if (Test-Path -LiteralPath $target) {
             $saved = Join-Path $backupRoot $relative
@@ -178,6 +226,15 @@ try {
     $menuShortcut.IconLocation = (Join-Path $appRoot 'media\icon.ico') + ',0'
     $menuShortcut.Description = 'Open the local Antigravity Monitor dashboard.'
     $menuShortcut.Save()
+    $uninstallerExe = Join-Path $appRoot 'Antigravity Monitor_Uninstaller.exe'
+    if (Test-Path -LiteralPath $uninstallerExe -PathType Leaf) {
+        $uninstallShortcut = $shell.CreateShortcut((Join-Path $programFolder 'Uninstall Antigravity Monitor.lnk'))
+        $uninstallShortcut.TargetPath = $uninstallerExe
+        $uninstallShortcut.WorkingDirectory = $appRoot
+        $uninstallShortcut.IconLocation = (Join-Path $appRoot 'media\icon.ico') + ',0'
+        $uninstallShortcut.Description = 'Uninstall Antigravity Monitor cleanly.'
+        $uninstallShortcut.Save()
+    }
     $agExe = Save-MonitorLaunchShortcuts -Shell $shell -PreferredExe $AntigravityExe -ProgramFolder $programFolder
     try {
         $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
