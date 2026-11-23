@@ -263,7 +263,7 @@ internal sealed class TrayFlyoutForm : Form
         Invalidate();
     }
 
-    private void TriggerRefresh()
+    private void SendCommandAsync(string type)
     {
         ThreadPool.QueueUserWorkItem(_ =>
         {
@@ -274,7 +274,7 @@ internal sealed class TrayFlyoutForm : Form
                 req.ContentType = "application/json";
                 req.Timeout = 1500;
                 req.ReadWriteTimeout = 1500;
-                byte[] body = System.Text.Encoding.UTF8.GetBytes("{\"type\":\"refresh\"}");
+                byte[] body = System.Text.Encoding.UTF8.GetBytes("{\"type\":\"" + type + "\"}");
                 req.ContentLength = body.Length;
                 using (var stream = req.GetRequestStream())
                 {
@@ -285,6 +285,11 @@ internal sealed class TrayFlyoutForm : Form
             catch { }
             FetchSnapshotAsync();
         });
+    }
+
+    private void TriggerRefresh()
+    {
+        SendCommandAsync("refresh");
     }
 
     private void FetchSnapshotAsync()
@@ -365,8 +370,15 @@ internal sealed class TrayFlyoutForm : Form
         }
         else if (hit == "openAg")
         {
-            HideFlyout();
-            if (_onOpenInAntigravity != null) _onOpenInAntigravity();
+            if (_model.Status == "unauthorized")
+            {
+                SendCommandAsync("relaunchApp");
+            }
+            else
+            {
+                HideFlyout();
+                if (_onOpenInAntigravity != null) _onOpenInAntigravity();
+            }
         }
     }
 
@@ -531,8 +543,11 @@ internal sealed class TrayFlyoutForm : Form
 
         // 5. Footer Strip
         int footY = H - 30;
-        _rcOpenAg = new Rectangle(pad, footY - 2, 185, 22);
-        DrawText(g, "Open in Antigravity Panel", _fBold, _hoveredId == "openAg" ? p.Text : p.Accent, _rcOpenAg, StringAlignment.Near);
+        bool needsAuth = _model.Status == "unauthorized";
+        _rcOpenAg = new Rectangle(pad, footY - 2, needsAuth ? 215 : 185, 22);
+        string footLabel = needsAuth ? "Relaunch Antigravity with Monitor" : "Open in Antigravity Panel";
+        Color footColor = _hoveredId == "openAg" ? p.Text : (needsAuth ? p.Warn : p.Accent);
+        DrawText(g, footLabel, _fBold, footColor, _rcOpenAg, StringAlignment.Near);
         string checkedLabel = !string.IsNullOrEmpty(_model.CheckedTime) ? "Updated " + _model.CheckedTime : "Local · 127.0.0.1";
         DrawText(g, checkedLabel, _fSmall, p.Muted, new Rectangle(W - pad - 150, footY, 150, 18), StringAlignment.Far);
 

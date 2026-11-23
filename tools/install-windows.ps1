@@ -288,12 +288,16 @@ if (-not $devtoolsReady) {
 if ($devtoolsReady) {
     Write-Output 'Inline composer badge: DevTools endpoint detected.'
 } else {
-    Write-Output 'Inline composer badge: no DevTools endpoint detected yet (dashboard works at http://127.0.0.1:4599).'
-    if ($agExe) {
-        Write-Output ('To show the inline pill in Antigravity, quit Antigravity completely and launch "Antigravity (with Monitor)" from the Start Menu, or run:')
-        Write-Output ('  "' + $agExe + '" --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1')
+    $agRunning = @(Get-Process -Name 'Antigravity' -ErrorAction SilentlyContinue).Count -gt 0
+    if ($agRunning) {
+        try {
+            Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:4599/api/command' -ContentType 'application/json' -Body '{"type":"relaunchApp"}' -TimeoutSec 3 | Out-Null
+            Write-Output 'Inline composer badge: relaunching Antigravity automatically with DevTools enabled...'
+        } catch {
+            Write-Output 'Inline composer badge: no DevTools endpoint detected yet (use "Relaunch Antigravity with Monitor" in the tray flyout or Start Menu "Antigravity (with Monitor)").'
+        }
     } else {
-        Write-Output 'To show the inline pill in Antigravity, quit Antigravity completely and relaunch with --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1'
+        Write-Output 'Inline composer badge: launch "Antigravity (with Monitor)" from the Start Menu, or click "Relaunch Antigravity with Monitor" in the tray flyout.'
     }
 }
 Write-Output 'The companion stays running and reconnects when apps close and reopen.'
