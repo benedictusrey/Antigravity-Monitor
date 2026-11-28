@@ -114,3 +114,17 @@ test('buckets with junk numbers are rebuilt rather than trusted', async () => {
   assert.deepEqual(buckets.get('2026-11-02|A'), { input: 10, cacheRead: 0, cacheCreate: 0, output: 3 });
   assert.equal(buckets.has('2026-11-02|B'), false);
 });
+
+test('sanitiseBuckets prunes entries older than the 120-day retention window while keeping recent days', async () => {
+  const { sanitiseBuckets } = await loadStateModule();
+  const { toDayKey } = await import('../src/core/format');
+  const todayKey = `${toDayKey()}|MODEL_X`;
+
+  const buckets = sanitiseBuckets({
+    '2020-01-01|OLD_MODEL': { input: 100, cacheRead: 0, cacheCreate: 0, output: 50 },
+    [todayKey]: { input: 10, cacheRead: 20, cacheCreate: 0, output: 5 },
+  });
+
+  assert.equal(buckets.has('2020-01-01|OLD_MODEL'), false);
+  assert.deepEqual(buckets.get(todayKey), { input: 10, cacheRead: 20, cacheCreate: 0, output: 5 });
+});

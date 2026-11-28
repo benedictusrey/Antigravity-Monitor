@@ -168,3 +168,13 @@ export function applyAppUpdateCheck(knownBuild, currentNotice, currentBuild, now
     version: diff.version,
   };
 }
+
+/** Decide whether a running Antigravity Desktop GUI process needs a one-shot DevTools relaunch. */
+export function shouldAutoRelaunchAppProcess(commandLine, pid, attemptedPids) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (attemptedPids?.has(pid)) return false;
+  if (typeof commandLine !== 'string' || commandLine.trim().length === 0) return false;
+  const hasRemoteDebug = /--remote-debugging-port(?:=|\s+)/i.test(commandLine);
+  const fromUpdater = /(?:^|\s)--updated(?:\s|$)/i.test(commandLine);
+  return !hasRemoteDebug || fromUpdater;
+}

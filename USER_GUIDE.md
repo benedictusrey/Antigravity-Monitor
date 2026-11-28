@@ -1,6 +1,6 @@
 # Antigravity Monitor user guide
 
-This guide covers v1.3.0. The white desktop app uses a separate companion. Antigravity IDE and VS Code can also run the native extension, which starts the installed companion automatically if needed.
+This guide covers v1.4.0. On Antigravity Desktop, the bundled Antigravity plugin exposes **Antigravity Monitor** directly inside the side panel and left sidebar via MCP Apps (`SessionStart` + `PreInvocation` token bridge) with zero relaunching needed. On Antigravity IDE and VS Code, the native VSIX extension shows a live status bar + dashboard (automatically bridging to the background companion on `127.0.0.1:4599` when needed — no IDE relaunch required).
 
 ## Install and update
 
@@ -8,7 +8,7 @@ Extract the complete companion ZIP. Install Node.js 22 or newer, then run the in
 
 The installer copies a stable runtime, preserves settings, creates startup integration, and starts the companion. Re-run it to update an existing installation. It identifies the monitor before stopping a process on port 4599 and saves the previous runtime as a backup. Do not run it with administrator or sudo privileges.
 
-Native editor extension installation depends on finding the editor CLI. If skipped, use **Extensions: Install from VSIX** inside the editor and select `antigravity-monitor-1.3.0.vsix`. Reload editor windows after installation.
+Native editor extension installation depends on finding the editor CLI. If skipped, use **Extensions: Install from VSIX** inside the editor and select `antigravity-monitor-1.4.0.vsix`. Reload editor windows after installation.
 
 macOS and Linux installation code is included, with native platform acceptance still pending. macOS installation requires a logged-in graphical session for the user LaunchAgent. Linux startup requires a desktop session that supports XDG autostart; it is not a system service.
 
@@ -16,7 +16,7 @@ Windows users can open **Install Antigravity Monitor.exe** for installation and 
 
 ## Enable the inline badge
 
-The companion looks for `DevToolsActivePort` beneath the app's normal user configuration directory and also probes `127.0.0.1:9222`. If the white app already exposes this endpoint, the badge attaches automatically. Closing and reopening the app is supported while the companion stays running.
+The companion looks for `DevToolsActivePort` beneath each app's configuration directory and also probes `127.0.0.1:9222` (Antigravity Desktop) and `127.0.0.1:9223` (Antigravity IDE). On Antigravity Desktop, the pill anchors beside `Turbo`; on Antigravity IDE (`extensionView`), it sits inside `.agy-composer-footer` directly left of the Send button. On Windows, the companion and installer automatically keep Desktop (`9222`) and IDE (`9223`) shortcuts up to date across Start Menu, Desktop, and Taskbar pins.
 
 If no endpoint is available, either click **Relaunch Antigravity with badge** right inside the Overview warning on **http://127.0.0.1:4599**, or quit Antigravity completely (in-app **Reload** keeps existing process flags) and relaunch it with a loopback remote-debugging port:
 
@@ -89,7 +89,7 @@ Data includes `state.json`, logs, and upgrade backups. Native editors keep their
 
 On macOS/Linux, installers automatically search standard `node` paths (Homebrew, `/usr/local`, `/snap/bin`, Volta, fnm, nvm), install the native VSIX into detected editors (`antigravity-ide`, `code`, `code-insiders`), and on Linux add `~/.local/share/applications/antigravity-monitor.desktop`. Options: `--no-autostart`, `--no-extensions`, `--no-start`, `--uninstall`, `--vsix <path>`. Uninstall stops the identified companion and removes its startup entry while retaining data and runtime for manual recovery. Remove native editor extensions through their Extensions view separately.
 
-On Windows, remove the **Antigravity Monitor** Startup shortcut to disable future automatic launches. Stop the identified companion process before removing its runtime. Keep `state.json` and backups if you want to retain usage and preferences.
+On Windows, use the **Start on Boot** toggle in the system tray context menu (or run **Antigravity Monitor_Uninstaller.exe** / **Uninstall Antigravity Monitor** from Start Menu) to manage sign-in startup entries cleanly. Keep `state.json` and backups if you want to retain usage (automatically kept for 120 days) and preferences.
 
 ## Troubleshooting
 

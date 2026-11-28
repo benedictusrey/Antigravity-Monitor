@@ -1,6 +1,6 @@
 # Security
 
-This document covers Antigravity Monitor v1.3.0. The project is unsigned and provided without warranty. Open source allows inspection; it does not establish that every build or environment is safe.
+This document covers Antigravity Monitor v1.4.0. The project is unsigned and provided without warranty. Open source allows inspection; it does not establish that every build or environment is safe.
 
 ## Report a vulnerability
 
@@ -23,11 +23,11 @@ These controls are not a sandbox against malicious software running as the same 
 Compare the release asset's SHA-256 with `SHA256SUMS.txt` from the same release:
 
 ```powershell
-Get-FileHash -LiteralPath .\Antigravity-Monitor-1.3.0-companion.zip -Algorithm SHA256
+Get-FileHash -LiteralPath .\Antigravity-Monitor-1.4.0-companion.zip -Algorithm SHA256
 ```
 
 On macOS use `shasum -a 256`; on Linux use `sha256sum`. A checksum detects a mismatch; it is not a signature or a guarantee of harmless code. Keep antivirus and operating-system protections enabled. Follow your organization's script and application policies.
 
 ## Support scope
 
-The active release line is v1.3.0. Windows has local execution evidence. macOS/Linux implementations are included but native acceptance is pending. Security reports about any included platform are welcome. No response-time or support-lifetime guarantee is made.
+The active release line is v1.4.0. Windows has local execution evidence. macOS/Linux implementations are included but native acceptance is pending. Security reports about any included platform are welcome. No response-time or support-lifetime guarantee is made.

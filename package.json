@@ -2,8 +2,8 @@
   "name": "antigravity-monitor",
   "displayName": "Antigravity Monitor",
   "description": "Live context-window, quota, and model telemetry for Antigravity conversations in the desktop app, Antigravity IDE, and VS Code.",
-  "version": "1.3.0",
-  "monitorBuild": "2026-11-23-v1.3.0",
+  "version": "1.4.0",
+  "monitorBuild": "2026-11-27-v1.4.0",
   "publisher": "antigravity-monitor",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -143,7 +143,7 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p .",
+    "compile": "tsc -p . && esbuild tools/mcp-app-bridge.ts --bundle --format=iife --platform=browser --minify --outfile=media/mcp-app-bridge.js",
     "watch": "tsc -p . --watch",
     "test": "node --test \"out/tests/*.test.js\"",
     "live": "node scripts/live-check.mjs",
@@ -152,9 +152,11 @@
     "vscode:prepublish": "npm run compile"
   },
   "devDependencies": {
+    "@modelcontextprotocol/ext-apps": "^2.0.4",
     "@types/node": "22.20.5",
     "@types/vscode": "1.107.0",
     "@vscode/vsce": "4.1.0",
+    "esbuild": "^0.28.2",
     "typescript": "5.9.3"
   },
   "overrides": {

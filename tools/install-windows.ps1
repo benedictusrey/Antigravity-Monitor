@@ -3,6 +3,35 @@ param([string]$PackageRoot, [string]$VsixPath, [switch]$Uninstall, [switch]$Purg
 $ErrorActionPreference = 'Stop'
 $taskName = 'AntigravityMonitor'
 
+function Update-AppShortcutFlags([object]$Shell, [string]$ExeRegex, [string]$Flags, [switch]$Remove) {
+    $dirs = @(
+        [Environment]::GetFolderPath('Desktop'),
+        [Environment]::GetFolderPath('Programs'),
+        (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar')
+    )
+    foreach ($dir in $dirs) {
+        if (-not $dir -or -not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+        foreach ($item in @(Get-ChildItem -LiteralPath $dir -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue)) {
+            if ($item.Name -eq 'Antigravity (with Monitor).lnk') { continue }
+            try {
+                $lnk = $Shell.CreateShortcut($item.FullName)
+                if ($lnk.TargetPath -notmatch $ExeRegex) { continue }
+                $cur = [string]$lnk.Arguments
+                if ($Remove) {
+                    $cleaned = (($cur -replace '(?:^|\s+)--remote-debugging-port=(?:9222|9223)\b', '') -replace '(?:^|\s+)--remote-debugging-address=127\.0\.0\.1\b', '').Trim() -replace '\s{2,}', ' '
+                    if ($cleaned -ne $cur.Trim()) {
+                        $lnk.Arguments = $cleaned
+                        $lnk.Save()
+                    }
+                } elseif ($cur -notmatch '--remote-debugging-port(?:=|\s+)') {
+                    $lnk.Arguments = ($cur.Trim() + ' ' + $Flags).Trim()
+                    $lnk.Save()
+                }
+            } catch {}
+        }
+    }
+}
+
 function Save-MonitorLaunchShortcuts([object]$Shell, [string]$PreferredExe, [string]$ProgramFolder) {
     $exe = $PreferredExe
     if (-not $exe -or -not (Test-Path -LiteralPath $exe -PathType Leaf)) {
@@ -26,6 +55,8 @@ function Save-MonitorLaunchShortcuts([object]$Shell, [string]$PreferredExe, [str
             }
         }
     }
+    Update-AppShortcutFlags -Shell $Shell -ExeRegex 'Antigravity\.exe$' -Flags '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1'
+    Update-AppShortcutFlags -Shell $Shell -ExeRegex 'Antigravity IDE\.exe$' -Flags '--remote-debugging-port=9223 --remote-debugging-address=127.0.0.1'
     if (-not $exe) { return $null }
     $targets = @((Join-Path ([Environment]::GetFolderPath('Programs')) 'Antigravity (with Monitor).lnk'))
     if ($ProgramFolder -and (Test-Path -LiteralPath $ProgramFolder -PathType Container)) {
@@ -64,6 +95,11 @@ if ($Uninstall) {
         Remove-ItemProperty -LiteralPath $runKey -Name 'AntigravityMonitor' -ErrorAction SilentlyContinue
     }
     $programsDir = [Environment]::GetFolderPath('Programs')
+    try {
+        $restoreShell = New-Object -ComObject WScript.Shell
+        Update-AppShortcutFlags -Shell $restoreShell -ExeRegex 'Antigravity\.exe$' -Remove
+        Update-AppShortcutFlags -Shell $restoreShell -ExeRegex 'Antigravity IDE\.exe$' -Remove
+    } catch {}
     Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Startup')) 'Antigravity Monitor.lnk') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $programsDir 'Antigravity (with Monitor).lnk') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $programsDir 'Antigravity Monitor') -Recurse -Force -ErrorAction SilentlyContinue
@@ -97,6 +133,10 @@ if ($Uninstall) {
         if ($cli) {
             try { & $cli --uninstall-extension antigravity-monitor.antigravity-monitor | Out-Null } catch {}
         }
+    }
+    $pluginDir = Join-Path $env:USERPROFILE '.gemini\config\plugins\antigravity-monitor'
+    if ($Purge -and (Test-Path -LiteralPath $pluginDir)) {
+        Remove-Item -LiteralPath $pluginDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     if ($Purge -and (Test-Path -LiteralPath $installRoot)) {
         $runningInsideInstall = $PSScriptRoot.StartsWith($installRoot, [StringComparison]::OrdinalIgnoreCase)
@@ -202,6 +242,26 @@ try {
             New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
             Copy-Item -LiteralPath $source -Destination $target -Force
         }
+    }
+    $pluginSource = Join-Path $PackageRoot 'plugin'
+    if (Test-Path -LiteralPath $pluginSource -PathType Container) {
+        $pluginRoot = Join-Path $env:USERPROFILE '.gemini\config\plugins\antigravity-monitor'
+        New-Item -ItemType Directory -Path $pluginRoot -Force | Out-Null
+        Get-ChildItem -LiteralPath $pluginSource -Force | Copy-Item -Destination $pluginRoot -Recurse -Force
+        foreach ($relative in @('package.json', 'LICENSE', 'tools', 'media', 'out\src')) {
+            $srcItem = Join-Path $PackageRoot $relative
+            if (-not (Test-Path -LiteralPath $srcItem)) { continue }
+            $dstItem = Join-Path $pluginRoot $relative
+            if (Test-Path -LiteralPath $srcItem -PathType Container) {
+                if (Test-Path -LiteralPath $dstItem -PathType Container) { Remove-Item -LiteralPath $dstItem -Recurse -Force }
+                New-Item -ItemType Directory -Path $dstItem -Force | Out-Null
+                Get-ChildItem -LiteralPath $srcItem -Force | Copy-Item -Destination $dstItem -Recurse -Force
+            } else {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $dstItem) -Force | Out-Null
+                Copy-Item -LiteralPath $srcItem -Destination $dstItem -Force
+            }
+        }
+        Write-Output ('Antigravity Plugin installed: ' + $pluginRoot)
     }
     [System.IO.File]::WriteAllText((Join-Path $appRoot 'node-path.txt'), $nodeExecutable)
     $shell = New-Object -ComObject WScript.Shell

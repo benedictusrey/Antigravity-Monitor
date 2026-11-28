@@ -22,7 +22,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { BadgeInjector, devtoolsEndpoints, parsePortList } from './cdp-badge.mjs';
-import { antigravityInstallCandidates, applyAppUpdateCheck, openCommand, readAntigravityBuild } from './platform.mjs';
+import { antigravityInstallCandidates, applyAppUpdateCheck, openCommand, readAntigravityBuild, shouldAutoRelaunchAppProcess } from './platform.mjs';
 import { loadState, mergeConfig, sanitiseBuckets, saveState, serialiseBuckets, statePath } from './state.mjs';
 
 const require = createRequire(import.meta.url);
@@ -68,8 +68,8 @@ const badge = argv.includes('--no-badge')
         const message = parseMessage({ type: 'updateSetting', key, value });
         if (message) applyCommand(message);
       },
-      onObserved: (port, conversationId, viewState, modelName) =>
-        monitor?.observeConversation(port, conversationId, viewState, modelName),
+      onObserved: (port, conversationId, viewState, modelName, pageTitle) =>
+        monitor?.observeConversation(port, conversationId, viewState, modelName, pageTitle),
       onToken: (backendPort, token) => monitor?.provideToken(backendPort, token),
       onAppVersion: (version) => handleObservedAppVersion(version),
       onRefresh: () => {
@@ -127,6 +127,7 @@ const monitorInstance = new Monitor({
   onSnapshot: (snapshot) => {
     latest = snapshot;
     badge?.update(snapshot);
+    scheduleAutoRelaunchCheck(snapshot);
   },
   recordUsage: (record) => {
     addUsage(buckets, record);
@@ -222,6 +223,75 @@ function readBody(request) {
 }
 
 let relaunching = false;
+const autoRelaunchedPids = new Set();
+let autoRelaunchTimer = null;
+let autoRelaunchChecking = false;
+
+function clearAutoRelaunchTimer() {
+  if (!autoRelaunchTimer) return;
+  clearTimeout(autoRelaunchTimer);
+  autoRelaunchTimer = null;
+}
+
+function scheduleAutoRelaunchCheck(snapshot) {
+  if (process.platform !== 'win32' || !badge || relaunching) {
+    clearAutoRelaunchTimer();
+    return;
+  }
+  const hasDesktopApp = Boolean(snapshot?.backends?.some((b) => b.app === 'app'));
+  if (snapshot?.status !== 'unauthorized' || !hasDesktopApp || badge.getStatus().state !== 'no-devtools') {
+    clearAutoRelaunchTimer();
+    return;
+  }
+  if (autoRelaunchTimer || autoRelaunchChecking) return;
+  autoRelaunchTimer = setTimeout(() => {
+    autoRelaunchTimer = null;
+    void runGuardedAutoRelaunch();
+  }, 3000);
+  autoRelaunchTimer.unref?.();
+}
+
+async function runGuardedAutoRelaunch() {
+  if (process.platform !== 'win32' || !badge || relaunching || autoRelaunchChecking) return;
+  if (latest?.status !== 'unauthorized' || badge.getStatus().state !== 'no-devtools') return;
+  autoRelaunchChecking = true;
+  try {
+    const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const script =
+      "$g = Get-CimInstance Win32_Process -Filter \"Name = 'Antigravity.exe'\" | Where-Object { $_.CommandLine -notmatch '--type=|sidecar_sdk|--import=' } | Select-Object -First 1; " +
+      "if ($g) { @{ pid = [int]$g.ProcessId; cmd = [string]$g.CommandLine } | ConvertTo-Json -Compress }";
+    const info = await new Promise((resolve) => {
+      execFile(
+        ps,
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
+        { windowsHide: true, timeout: 4000 },
+        (err, stdout) => {
+          if (err || !stdout || !stdout.trim()) {
+            resolve(null);
+            return;
+          }
+          try {
+            resolve(JSON.parse(stdout.trim()));
+          } catch {
+            resolve(null);
+          }
+        },
+      );
+    });
+    if (!info || !Number.isInteger(info.pid) || info.pid <= 0) return;
+    if (latest?.status !== 'unauthorized' || badge.getStatus().state !== 'no-devtools' || relaunching) return;
+    if (shouldAutoRelaunchAppProcess(info.cmd, info.pid, autoRelaunchedPids)) {
+      autoRelaunchedPids.add(info.pid);
+      console.log(`[relaunch] Antigravity Desktop (pid ${info.pid}) missing live DevTools; refreshing shortcuts and relaunching once.`);
+      refreshWindowsMonitorShortcuts();
+      relaunchDesktopApp({ requireRunning: true });
+    } else {
+      autoRelaunchedPids.add(info.pid);
+    }
+  } finally {
+    autoRelaunchChecking = false;
+  }
+}
 
 function wakeBadgeAfterRelaunch() {
   for (const ms of [1500, 3500, 6000]) {
@@ -230,9 +300,10 @@ function wakeBadgeAfterRelaunch() {
   }
 }
 
-function relaunchDesktopApp() {
+function relaunchDesktopApp({ requireRunning = false } = {}) {
   if (relaunching) return;
   relaunching = true;
+  clearAutoRelaunchTimer();
   const finish = () => {
     relaunching = false;
     wakeBadgeAfterRelaunch();
@@ -241,6 +312,7 @@ function relaunchDesktopApp() {
     const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     const script = [
       "$guis = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'Antigravity.exe' -and $_.CommandLine -notmatch '--type=|sidecar_sdk|--import=' })",
+      ...(requireRunning ? ["if ($guis.Count -eq 0) { exit 0 }"] : []),
       "$exe = ($guis | Select-Object -First 1).ExecutablePath",
       "if (-not $exe) { $exe = Join-Path $env:LOCALAPPDATA 'Programs\\antigravity\\Antigravity.exe' }",
       "if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { exit 1 }",
@@ -269,6 +341,45 @@ function relaunchDesktopApp() {
   finish();
 }
 
+function relaunchIdeApp() {
+  if (relaunching) return;
+  relaunching = true;
+  const finish = () => {
+    relaunching = false;
+    wakeBadgeAfterRelaunch();
+  };
+  if (process.platform === 'win32') {
+    const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const script = [
+      "$guis = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'Antigravity IDE.exe' -and $_.CommandLine -notmatch '--type=|sidecar_sdk|--import=' })",
+      "$exe = ($guis | Select-Object -First 1).ExecutablePath",
+      "if (-not $exe) { $exe = @((Join-Path $env:LOCALAPPDATA 'Programs\\Antigravity IDE\\Antigravity IDE.exe'), (Join-Path $env:ProgramFiles 'Antigravity IDE\\Antigravity IDE.exe')) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1 }",
+      "if (-not $exe -or -not (Test-Path -LiteralPath $exe -PathType Leaf)) { exit 1 }",
+      "foreach ($g in $guis) { $p = Get-Process -Id $g.ProcessId -ErrorAction SilentlyContinue; if ($p) { [void]$p.CloseMainWindow(); if (-not $p.WaitForExit(2500)) { Stop-Process -Id $g.ProcessId -ErrorAction SilentlyContinue } } }",
+      "$deadline = [DateTime]::UtcNow.AddSeconds(3)",
+      "while ([DateTime]::UtcNow -lt $deadline) { if (-not (Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'Antigravity IDE.exe' -and $_.CommandLine -notmatch 'sidecar_sdk|--import=' })) { break }; Start-Sleep -Milliseconds 200 }",
+      "Start-Process -FilePath $exe -ArgumentList '--remote-debugging-port=9223 --remote-debugging-address=127.0.0.1'",
+    ].join('; ');
+    execFile(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script], { windowsHide: true }, (err) => {
+      if (err) console.error(`[relaunch-ide] ${err.message}`);
+      finish();
+    });
+    return;
+  }
+  if (process.platform === 'darwin') {
+    execFile('/usr/bin/osascript', ['-e', 'tell application "Antigravity IDE" to quit'], () => {
+      setTimeout(() => {
+        const child = spawn('/usr/bin/open', ['-a', 'Antigravity IDE', '--args', '--remote-debugging-port=9223', '--remote-debugging-address=127.0.0.1'], { detached: true, stdio: 'ignore' });
+        child.on('error', () => {});
+        child.unref();
+        finish();
+      }, 1500);
+    });
+    return;
+  }
+  finish();
+}
+
 function applyCommand(message) {
   switch (message.type) {
     case 'refresh':
@@ -276,6 +387,9 @@ function applyCommand(message) {
       return;
     case 'relaunchApp':
       relaunchDesktopApp();
+      return;
+    case 'relaunchIde':
+      relaunchIdeApp();
       return;
     case 'openInAppPanel':
       void badge?.openInAppPanel();
@@ -326,6 +440,53 @@ const server = http.createServer((request, response) => {
       appUpdate = null;
     }
     sendJson(response, 200, { snapshot: latest ? { ...latest, badge: badgeStatus, appUpdate } : null });
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/token') {
+    const origin = request.headers.origin;
+    if (origin && origin !== `http://127.0.0.1:${port}` && origin !== `http://localhost:${port}`) {
+      sendJson(response, 403, { error: 'forbidden' });
+      return;
+    }
+    if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+      sendJson(response, 415, { error: 'JSON required' });
+      return;
+    }
+    readBody(request)
+      .then((body) => {
+        const parsed = JSON.parse(body || '{}');
+        const targetPort = Number(parsed?.port);
+        const token = typeof parsed?.token === 'string' ? parsed.token : '';
+        const scheme = parsed?.scheme === 'https' ? 'https' : 'http';
+        const conversationId =
+          typeof parsed?.conversationId === 'string' &&
+          parsed.conversationId.length > 0 &&
+          parsed.conversationId.length <= 200 &&
+          !/\s/.test(parsed.conversationId)
+            ? parsed.conversationId
+            : null;
+        if (
+          !Number.isInteger(targetPort) ||
+          targetPort < 1 ||
+          targetPort > 65535 ||
+          token.length === 0 ||
+          token.length > 512 ||
+          /\s/.test(token)
+        ) {
+          sendJson(response, 400, { error: 'invalid token payload' });
+          return;
+        }
+        monitor?.provideTarget(targetPort, token, scheme);
+        if (conversationId) {
+          monitor?.observeConversation(targetPort, conversationId, 'conversation', null);
+        }
+        response.writeHead(204);
+        response.end();
+      })
+      .catch(() => {
+        sendJson(response, 400, { error: 'bad request' });
+      });
     return;
   }
 
@@ -427,15 +588,14 @@ let updateTimer = null;
 let updatePollInterval = null;
 
 function refreshWindowsMonitorShortcuts(exePath) {
-  if (process.platform !== 'win32' || !exePath) return;
+  if (process.platform !== 'win32') return;
   const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const scriptPath = path.join(root, 'tools', 'install-windows.ps1');
-  execFile(
-    ps,
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', scriptPath, '-RefreshShortcuts', '-AntigravityExe', exePath],
-    { windowsHide: true },
-    () => {},
-  );
+  const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', scriptPath, '-RefreshShortcuts'];
+  if (exePath) {
+    args.push('-AntigravityExe', exePath);
+  }
+  execFile(ps, args, { windowsHide: true }, () => {});
 }
 
 function handleObservedAppVersion(version) {
@@ -537,13 +697,27 @@ server.listen(port, '127.0.0.1', () => {
   checkAntigravityUpdate('startup');
   updatePollInterval = setInterval(() => checkAntigravityUpdate('timer'), 15_000);
   updatePollInterval.unref?.();
+  const envAddress = process.env.ANTIGRAVITY_LS_ADDRESS ?? '';
+  const envToken = process.env.ANTIGRAVITY_CSRF_TOKEN ?? '';
+  const envMatch = /^(?:127\.0\.0\.1|localhost):(\d{1,5})$/i.exec(envAddress.trim());
+  if (envMatch && envToken && envToken.length <= 512 && !/\s/.test(envToken)) {
+    const envPort = Number(envMatch[1]);
+    if (Number.isInteger(envPort) && envPort >= 1 && envPort <= 65535) {
+      monitor.provideTarget(envPort, envToken, 'http');
+    }
+  }
   monitor.start();
+  if (process.platform === 'win32') {
+    const shortcutTimer = setTimeout(() => refreshWindowsMonitorShortcuts(), 1500);
+    shortcutTimer.unref?.();
+  }
   if (shouldOpen) {
     openWindow(url);
   }
 });
 
 function shutdown() {
+  clearAutoRelaunchTimer();
   if (wakeTimer) {
     clearTimeout(wakeTimer);
     wakeTimer = null;

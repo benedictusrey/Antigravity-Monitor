@@ -1,6 +1,6 @@
 # Architecture
 
-Antigravity Monitor v1.3.0 has a shared observer core and two presentation hosts: a native VS Code extension and a standalone companion. The white Antigravity desktop app uses the companion because it has no VS Code extension host, while the native extension also starts the installed companion automatically (`ensureCompanionRunning`) on editor activation.
+Antigravity Monitor v1.4.0 has a shared observer core and three presentation hosts: a native Antigravity Desktop Plugin (MCP App `aux_pane` + `global` entrypoints and a `SessionStart`/`PreInvocation` auth bridge), a native VS Code / Antigravity IDE extension (`projectCompanionSnapshot()` companion bridge when CLI tokens are omitted), and a standalone companion (`127.0.0.1:4599`) with a dynamic-height native Windows 11 tray flyout. The plugin runs directly inside Antigravity Desktop using `ANTIGRAVITY_LS_ADDRESS` / `ANTIGRAVITY_CSRF_TOKEN` with zero DevTools relaunch required, while the inline composer pill attaches on `9222` (`page`) and `9223` (`extensionView` loopback `iframe` -> `.agy-composer-footer` left of Send). The monitor does not patch Antigravity's binaries.
 
 ## Data flow
 

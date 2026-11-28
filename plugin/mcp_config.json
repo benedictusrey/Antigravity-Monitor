@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "monitor": {
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/tools/mcp-app-server.mjs"
+      ]
+    }
+  }
+}

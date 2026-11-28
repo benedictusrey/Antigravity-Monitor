@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { Monitor } from '../src/app/monitor';
+import { Monitor, matchConversationByTitle } from '../src/app/monitor';
 import { dedupeBackends } from '../src/core/select';
 import { emptyUsage } from '../src/core/usage';
 
@@ -106,4 +106,69 @@ test('invokeRpc falls back to rpcFallback when direct loopback RPC returns unaut
   } finally {
     server.close();
   }
+});
+
+test('provideTarget connects to an explicit loopback target without process discovery and clears unauthorized state', async () => {
+  const http = await import('node:http');
+  let seenToken: string | undefined;
+  const server = http.createServer((req, res) => {
+    seenToken = req.headers['x-codeium-csrf-token'] as string | undefined;
+    if (seenToken !== 'env-tok-999') {
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end('{"code":"unauthenticated"}');
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        trajectorySummaries: {},
+        userStatus: { email: 'dev@example.com', planStatus: { planInfo: { planName: 'Pro' } }, cascadeModelConfigData: {} },
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  try {
+    let lastSnapshot: any = null;
+    const monitor = monitorWith((s) => {
+      lastSnapshot = s;
+    }) as any;
+    monitor.provideTarget(port, 'env-tok-999', 'http', 'app');
+    monitor.observeConversation(port, '11111111-2222-3333-4444-555555555555', 'conversation', null);
+    await monitor.discover();
+    assert.equal(seenToken, 'env-tok-999');
+    assert.equal(monitor.statuses.get(`hub:${port}`)?.reachable, true);
+    assert.equal(monitor.instances.get(`hub:${port}`)?.observedConversationId, '11111111-2222-3333-4444-555555555555');
+    assert.equal(lastSnapshot?.status !== 'unauthorized', true);
+    monitor.stop();
+  } finally {
+    server.close();
+  }
+});
+
+test('observeConversation correlates extensionView pageTitle to matching conversation on shared profiles', () => {
+  const conversations: any[] = [
+    { id: 'c1', title: 'Antigravity Monitor Authorization and Startup Fix', status: 'running', stepCount: 10, lastModified: '2026-11-28T12:00:00Z' },
+    { id: 'c2', title: 'Wood Defect Engine ROI Refinement', status: 'idle', stepCount: 5, lastModified: '2026-11-28T10:00:00Z' },
+  ];
+  assert.equal(
+    matchConversationByTitle(conversations, 'Wood Defect Engine ROI Refinement - Segmented_Validation - Antigravity')?.id,
+    'c2',
+  );
+  const monitor = monitorWith() as any;
+  monitor.instances.set('hub:http:54849', {
+    target: { id: 'hub:http:54849', kind: 'hub', scheme: 'http', host: '127.0.0.1', port: 54849, token: 't', pid: 1, appDataDir: null, owner: 'ide' },
+    status: { id: 'hub:http:54849', kind: 'hub', scheme: 'http', port: 54849, pid: 1, appDataDir: null, app: 'ide', reachable: true, conversationCount: 2, runningCount: 1, lastActivityMs: 1, failureReason: null },
+    conversations,
+    activeConversationId: 'c1',
+    observedConversationId: null,
+    previousStepCounts: new Map(),
+    retryAt: 0,
+  });
+  monitor.observeConversation(54849, null, 'unknown', null, 'Wood Defect Engine ROI Refinement - Segmented_Validation - Antigravity');
+  const inst = monitor.instances.get('hub:http:54849');
+  assert.equal(inst.activeConversationId, 'c2');
+  assert.equal(inst.observedTitle, 'Wood Defect Engine ROI Refinement - Segmented_Validation - Antigravity');
+  monitor.stop();
 });

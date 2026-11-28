@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.4.0
+
+Native Antigravity Desktop Plugin (`MCP App` + `SessionStart`/`PreInvocation` auth bridge), zero-relaunch Antigravity IDE monitoring (`extensionView` composer-footer badge + VSIX companion bridge), `Antigravity Monitor_Uninstaller.exe`, tray **Start on Boot** toggle, and dynamic-height Windows 11 flyout polish. Packages are organized under `release/v1.4.0/`.
+
+### Native Antigravity Plugin & Zero-Relaunch Desktop Integration
+
+- **Antigravity Plugin bundle (`plugin/`)**: packages `plugin.json`, `mcp_config.json`, `hooks.json` (`SessionStart` + `PreInvocation`), and `assets/logo.svg` into `~/.gemini/config/plugins/antigravity-monitor/` during Windows, macOS, and Linux installation.
+- **Interactive MCP App & reliable bridge (`tools/mcp-app-server.mjs`, `tools/mcp-app-bridge.ts`)**: exposes `open_monitor` (`aux_pane` and `global` sidebar entrypoints in Antigravity Desktop) backed by companion-first snapshotting (`isLiveSnapshot`), standalone ephemeral token bridge fallback (`mcp-bridge-port.txt`), automatic companion re-auth (`shouldReauthCompanion`), `stateDirty` state-save protection, and serialized `commandChain` queuing to respect in-flight MCP tool limits.
+- **Memory-only auth bridge & boot-safe auto-recovery (`tools/plugin-session-hook.mjs`, `tools/platform.mjs`, `tools/monitor-server.mjs`, `src/app/monitor.ts`)**: delivers active language-server ports and in-memory CSRF tokens directly to `Monitor.provideTarget()` (`POST /api/token`), maintains `--remote-debugging-port=9222` / `9223` shortcut flags across Desktop/IDE shortcuts (`tools/install-windows.ps1`), and applies a one-shot `requireRunning: true` recovery check (`shouldAutoRelaunchAppProcess()`) without ever launching Antigravity on Windows boot.
+
+### Antigravity IDE Zero-Relaunch Monitoring & Badge Placement
+
+- **Loopback `extensionView` iframe support (`tools/cdp-badge.mjs`, `VERSION = 32`)**: attaches strictly to loopback `http:`/`https:` `iframe` targets (port `9223` fallback) used by Antigravity IDE, reads in-memory CSRF tokens without relaunching IDE or invoking token prompts, preserves active telemetry on `/`, and anchors the inline composer pill directly inside `.agy-composer-footer` immediately to the left of the Send (`→`) button.
+- **IDE VSIX companion bridge & clean copy (`src/app/snapshot.ts`, `src/app/extension.ts`, `src/app/strings.ts`, `media/dashboard.js`)**: added `projectCompanionSnapshot()` and `127.0.0.1:4599` fallback polling/command forwarding in the VSIX extension so `StatusBar` and `DashboardPanel` stay live when `agy.exe --hub` omits CLI tokens, with no-relaunch `editor` UI copy.
+
+### Windows Uninstaller, Flyout & UI/UX Polish
+
+- **Clean uninstaller (`Antigravity Monitor_Uninstaller.exe`) & **Start on Boot** tray toggle (`tools/windows-launcher.cs`, `tools/install-windows.ps1`)**: prompts for confirmation, stops the tray host and verified port-`4599` monitor, cleans startup entries, shortcuts, editor VSIX, Antigravity plugin, and `%LOCALAPPDATA%\Antigravity Monitor`, plus a checkable tray toggle for Windows startup entries.
+- **UI/UX & accessibility polish (`media/dashboard.css`, `media/dashboard.js`, `tools/windows-flyout.cs`, `tools/state.mjs`)**: eliminated all `impeccable detect` findings (`[]`, 0 errors / 0 warnings), added optimistic `Relaunching Antigravity…` state and Settings recovery actions, added ARIA progress bars, clamped numeric Settings inputs, pruned `state.json` buckets to 120 days (`recentDayKeys`), and refined the WinForms flyout with dynamic `DesiredHeight()`, wider `"Standby"` status pill, sun-ray theme icon, and `Relaunching` status copy.
+- **Verification**: `254 / 254` automated tests (`npm test`), `scripts/check-windows-launchers.ps1`, live `impeccable detect` (`[]`), and live Desktop + Antigravity IDE (`9223` `.agy-composer-footer`) badge verification pass.
+
 ## v1.3.0
 
 Adaptive multi-version Antigravity support (2.34+ and future releases), native lightweight Windows 11 system tray flyout, accurate output speed and session cache hit ratio metrics, Dark & Light dashboard themes, clickable account email masking on the inline card, and silent console-free sign-in startup. Packages are organized under `release/v1.3.0/`.

@@ -13,7 +13,7 @@ foreach ($scriptName in @('Install Antigravity Monitor.sh','Install Antigravity 
     $raw = [IO.File]::ReadAllText((Join-Path $projectRoot $scriptName))
     if ($raw.Contains("`r`n")) { throw "POSIX script must use LF line endings: $scriptName" }
 }
-foreach ($required in @($vsix,'out\src\app\monitor.js','out\src\core\quota.js','media\icon.png','media\icon.ico','media\icon.icns','Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor_Uninstaller.exe','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh','assets\banners\antigravity-monitor-hero.jpg','assets\banners\antigravity-monitor-flyout.jpg','assets\banners\antigravity-monitor-features.jpg','assets\banners\antigravity-monitor-customization.jpg')) {
+foreach ($required in @($vsix,'out\src\app\monitor.js','out\src\core\quota.js','media\icon.png','media\icon.ico','media\icon.icns','media\mcp-app-bridge.js','plugin\plugin.json','plugin\mcp_config.json','plugin\hooks.json','plugin\assets\logo.svg','Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor_Uninstaller.exe','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh','assets\banners\antigravity-monitor-hero.jpg','assets\banners\antigravity-monitor-flyout.jpg','assets\banners\antigravity-monitor-features.jpg','assets\banners\antigravity-monitor-customization.jpg')) {
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot $required) -PathType Leaf)) { throw "Build first; missing: $required" }
 }
 $staging = Join-Path $OutputDirectory 'staging'
@@ -27,13 +27,13 @@ function Copy-Relative([string]$Relative, [string]$Destination) {
     Copy-Item -LiteralPath $source -Destination $target -Recurse -Force
 }
 $rootFiles = @('.gitignore','.gitattributes','.vscodeignore','package.json','package-lock.json','LICENSE','tsconfig.json','Antigravity Monitor.cmd','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh')
-$rootFiles += Get-ChildItem -LiteralPath $projectRoot -Filter '*.md' -File | ForEach-Object Name
+$rootFiles += Get-ChildItem -LiteralPath $projectRoot -Filter '*.md' -File | Where-Object { $_.Name -notlike 'Antigravity-Monitor_*.md' -and $_.Name -notlike 'Antigravity Monitor_*.md' } | ForEach-Object Name
 foreach ($relative in $rootFiles) { Copy-Relative $relative $repository }
-foreach ($relative in @('src','tests','scripts','tools','media','assets','.github')) { Copy-Relative $relative $repository }
+foreach ($relative in @('src','tests','scripts','tools','media','plugin','assets','.github')) { Copy-Relative $relative $repository }
 foreach ($relative in @('docs\ARCHITECTURE.md','docs\AUDIT.md','docs\DESIGN.md','docs\screenshots')) { Copy-Relative $relative $repository }
-foreach ($relative in @('package.json','LICENSE','tools','media','assets','out\src',$vsix)) { Copy-Relative $relative $runtime }
+foreach ($relative in @('package.json','LICENSE','tools','media','plugin','assets','out\src',$vsix)) { Copy-Relative $relative $runtime }
 foreach ($relative in @('Antigravity Monitor.exe','Install Antigravity Monitor.exe','Antigravity Monitor_Uninstaller.exe','Antigravity Monitor.cmd','Install Antigravity Monitor.cmd','Install Antigravity Monitor.sh','Install Antigravity Monitor.command','Antigravity Monitor.sh')) { Copy-Relative $relative $runtime }
-foreach ($relative in (Get-ChildItem -LiteralPath $projectRoot -Filter '*.md' -File | ForEach-Object Name)) { Copy-Relative $relative $runtime }
+foreach ($relative in (Get-ChildItem -LiteralPath $projectRoot -Filter '*.md' -File | Where-Object { $_.Name -notlike 'Antigravity-Monitor_*.md' -and $_.Name -notlike 'Antigravity Monitor_*.md' } | ForEach-Object Name)) { Copy-Relative $relative $runtime }
 foreach ($relative in @('docs\ARCHITECTURE.md','docs\AUDIT.md','docs\DESIGN.md','docs\screenshots')) { Copy-Relative $relative $runtime }
 Copy-Item -LiteralPath (Join-Path $projectRoot $vsix) -Destination (Join-Path $OutputDirectory $vsix)
 Copy-Item -LiteralPath (Join-Path $projectRoot 'RELEASE_NOTES.md') -Destination (Join-Path $OutputDirectory 'RELEASE_NOTES.md')

@@ -27,7 +27,7 @@ On Windows, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts
 
 Explain the trigger, the resulting behavior, and how it was verified. Include screenshots for visible changes and label illustrative data. State native-platform gaps explicitly. Avoid broad refactors mixed into a small fix.
 
-All current project packages and release files remain **v1.3.0**. Do not bump the version without maintainer agreement. Dependency versions keep their own upstream values.
+All current project packages and release files remain **v1.4.0**. Do not bump the version without maintainer agreement. Dependency versions keep their own upstream values.
 
 ## Community
 

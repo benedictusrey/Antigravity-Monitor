@@ -1,6 +1,15 @@
-# v1.3.0 release audit
+# v1.4.0 release audit
 
-Date: 23 November 2026 (updating the 19 November 2026 v1.2.0, 17 November 2026 v1.1.0, and 6 November 2026 v1.0.0 baselines).
+Date: 28 November 2026 (updating the 23 November 2026 v1.3.0, 19 November 2026 v1.2.0, 17 November 2026 v1.1.0, and 6 November 2026 v1.0.0 baselines).
+
+## v1.4.0 Findings fixed
+
+| Priority | Concrete failure | Fix and evidence |
+|---|---|---|
+| High | Fresh launches of Antigravity Desktop 2.34+ omit CLI `--csrf_token` and updater restarts (`--updated`) dropped live DevTools, leaving plugin/companion panes stuck on `Authorization needed` (plus a `ReferenceError: host is not defined` crash in `dashboard.js`). | Packaged Antigravity Monitor as a native Antigravity Plugin (`plugin/`) with `SessionStart` + `PreInvocation` token hooks (`tools/plugin-session-hook.mjs` -> `POST /api/token` + `shouldReauthCompanion()`), fixed `host` binding and primary **Relaunch Antigravity** action in `media/dashboard.js`, and added boot-safe one-shot recovery (`shouldAutoRelaunchAppProcess()` + `requireRunning: true`) in `tools/monitor-server.mjs`. Verified via `tests/mcp-app.test.ts`, `tests/platform.test.ts`, and live plugin discovery. |
+| High | Antigravity IDE (`9223`) ran its composer in a loopback `extensionView` `iframe` without CLI `--csrf_token`; `isAttachableTarget` skipped `iframe` targets, IDE VSIX lacked a companion bridge, and the badge stacked below the model picker. | Allowed strictly loopback `http:`/`https:` `iframe` attachment + `9223` fallback in `tools/cdp-badge.mjs` (`VERSION = 32`), anchored `.agy-composer-footer` immediately left of Send, added `projectCompanionSnapshot()` + `127.0.0.1:4599` bridge in `src/app/extension.ts`, and updated `editor` `unauthorized` copy. Verified live against `Antigravity IDE.exe` (`attached: 2`, `hub:http:53430` reachable). |
+| Medium | Removing Antigravity Monitor or toggling Windows boot startup required manual Registry/task cleanup, tray flyout height left dead bottom space, `state.json` grew unbounded, and `impeccable detect` flagged halo animations and sub-12px text. | Added `Antigravity Monitor_Uninstaller.exe` + checkable tray **Start on Boot**, dynamic `DesiredHeight()` flyout sizing (`tools/windows-flyout.cs`), 120-day bucket retention (`tools/state.mjs`), serialized `commandChain` MCP calls (`tools/mcp-app-bridge.ts`), and `dashboard.css`/`dashboard.js` cleanups (`impeccable detect --json` -> `[]`). |
+| Medium | **254 / 254** automated tests pass (`npm test`), Windows launcher checks (`scripts/check-windows-launchers.ps1`) pass, and `release/v1.4.0/` archives + `SHA256SUMS.txt` are verified. | — |
 
 ## v1.3.0 Findings fixed
 
@@ -61,7 +70,7 @@ The v1.2.0 audit below remains the record of earlier conditions.
 ## Validation
 
 - TypeScript compilation and **214 automated tests passed**, with no skips or failures (`npm test`).
-- Contrast check (`antislop-human/contrast-check.py`): all **16** dark and light pairs PASS WCAG AA (minimum ratio `4.96:1`); Mode 2 UI findings are logged separately in [anti-slop/audit-001-2026-11-19.md](../anti-slop/audit-001-2026-11-19.md) awaiting maintainer selection.
+- Contrast check (`antislop-human/contrast-check.py`): all **16** dark and light pairs PASS WCAG AA (minimum ratio `4.96:1`), and v1.4.0 live UI audit (`impeccable detect --json "http://127.0.0.1:4599"`) returned `[]` (**0** errors, **0** warnings).
 - Live backend verification (`npm run live`) ran against local `Antigravity.exe` (`https:50890`) with `Gemini Models`, `Claude and GPT models`, and `Gemini 4 Argon` quota pools (`24` picker models).
 - Windows launcher build and check scripts verified embedded icons, `v1.2.0` product metadata, launch targets, and missing-file guards.
 - Local Windows installation and companion restart persisted preferences (`HKCU\...\Run` + Startup shortcut + top-level and folder `Antigravity (with Monitor).lnk` shortcuts + VSIX); live Electron CDP inline badge attachment verified (`attached: 1`, `probedPages: 5`), and `v1.2.0` archives, VSIX contents, normalized `/` ZIP headers, POSIX `0100755` bits, and `SHA256SUMS.txt` were verified after packaging.

@@ -8,14 +8,15 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Antigravity Monitor")]
 [assembly: AssemblyProduct("Antigravity Monitor")]
 [assembly: AssemblyCompany("Benedictus RH (@benedictusrey)")]
 [assembly: AssemblyDescription("Antigravity Monitor launcher")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
-[assembly: AssemblyInformationalVersion("1.3.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
+[assembly: AssemblyInformationalVersion("1.4.0")]
 
 internal static class Launcher
 {
@@ -247,6 +248,9 @@ internal static class Launcher
                 focusItem.Font = new Font(focusItem.Font, FontStyle.Bold);
                 focusItem.Click += (s, e) => OpenOrFocusAntigravity(root);
 
+                var ideItem = new ToolStripMenuItem("Open with Antigravity IDE (Active Thread)");
+                ideItem.Click += (s, e) => OpenOrFocusAntigravityIde(root);
+
                 var dashItem = new ToolStripMenuItem("Open Monitor Dashboard");
                 dashItem.Click += (s, e) =>
                 {
@@ -260,10 +264,22 @@ internal static class Launcher
                     ThreadPool.QueueUserWorkItem(_ => { StopCompanion(); StartCompanion(root, false); });
                 };
 
+                var bootItem = new ToolStripMenuItem("Start on Boot");
+                menu.Opening += (s, e) => { bootItem.Checked = IsStartOnBootEnabled(); };
+                bootItem.Click += (s, e) =>
+                {
+                    bool next = !IsStartOnBootEnabled();
+                    SetStartOnBoot(next);
+                    bootItem.Checked = IsStartOnBootEnabled();
+                };
+
                 var exitItem = new ToolStripMenuItem("Exit");
                 menu.Items.Add(focusItem);
+                menu.Items.Add(ideItem);
+                menu.Items.Add(new ToolStripSeparator());
                 menu.Items.Add(dashItem);
                 menu.Items.Add(restartItem);
+                menu.Items.Add(bootItem);
                 menu.Items.Add(new ToolStripSeparator());
                 menu.Items.Add(exitItem);
 
@@ -368,11 +384,18 @@ internal static class Launcher
     {
         try
         {
-            using (var client = new WebClient())
+            var req = (HttpWebRequest)WebRequest.Create(DashboardUrl + "/api/command");
+            req.Method = "POST";
+            req.ContentType = "application/json";
+            req.Timeout = 1500;
+            req.ReadWriteTimeout = 1500;
+            byte[] body = System.Text.Encoding.UTF8.GetBytes("{\"type\":\"openInAppPanel\"}");
+            req.ContentLength = body.Length;
+            using (var stream = req.GetRequestStream())
             {
-                client.Headers[HttpRequestHeader.ContentType] = "application/json";
-                client.UploadString(DashboardUrl + "/api/command", "POST", "{\"type\":\"openInAppPanel\"}");
+                stream.Write(body, 0, body.Length);
             }
+            using (req.GetResponse()) { }
         }
         catch { }
     }
@@ -394,28 +417,173 @@ internal static class Launcher
         return null;
     }
 
+    private static void OpenOrFocusAntigravityIde(string root)
+    {
+        bool focused = false;
+        try
+        {
+            foreach (Process proc in Process.GetProcessesByName("Antigravity IDE"))
+            {
+                try
+                {
+                    if (proc.MainWindowHandle != IntPtr.Zero)
+                    {
+                        if (IsIconic(proc.MainWindowHandle)) ShowWindow(proc.MainWindowHandle, 9);
+                        SetForegroundWindow(proc.MainWindowHandle);
+                        focused = true;
+                        break;
+                    }
+                }
+                catch { }
+                finally { proc.Dispose(); }
+            }
+        }
+        catch { }
+
+        if (focused)
+        {
+            ThreadPool.QueueUserWorkItem(_ => StartCompanion(root, false));
+            return;
+        }
+
+        string ideExe = FindAntigravityIdeExe();
+        if (!string.IsNullOrEmpty(ideExe))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = ideExe,
+                    Arguments = "--remote-debugging-port=9223 --remote-debugging-address=127.0.0.1",
+                    WorkingDirectory = Path.GetDirectoryName(ideExe),
+                    UseShellExecute = false
+                });
+                ThreadPool.QueueUserWorkItem(_ => StartCompanion(root, false));
+                return;
+            }
+            catch { }
+        }
+        SignalExistingTray();
+    }
+
+    private static string FindAntigravityIdeExe()
+    {
+        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string prog = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        string[] candidates = new[]
+        {
+            Path.Combine(local, "Programs", "Antigravity IDE", "Antigravity IDE.exe"),
+            Path.Combine(prog, "Antigravity IDE", "Antigravity IDE.exe")
+        };
+        foreach (string path in candidates)
+        {
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
+
     private static void StopCompanion()
     {
         try
         {
-            using (var client = new WebClient())
+            var req = (HttpWebRequest)WebRequest.Create(DashboardUrl + "/api/health");
+            req.Timeout = 1500;
+            req.ReadWriteTimeout = 1500;
+            string json;
+            using (var resp = (HttpWebResponse)req.GetResponse())
+            using (var reader = new StreamReader(resp.GetResponseStream()))
             {
-                string json = client.DownloadString(DashboardUrl + "/api/health");
-                if (json == null || json.IndexOf("\"antigravity-monitor\"", StringComparison.OrdinalIgnoreCase) < 0) return;
-                Match match = Regex.Match(json, "\"pid\"\\s*:\\s*(\\d+)");
-                if (!match.Success) return;
-                int pid;
-                if (int.TryParse(match.Groups[1].Value, out pid) && pid > 0)
+                json = reader.ReadToEnd();
+            }
+            if (json == null || json.IndexOf("\"antigravity-monitor\"", StringComparison.OrdinalIgnoreCase) < 0) return;
+            Match match = Regex.Match(json, "\"pid\"\\s*:\\s*(\\d+)");
+            if (!match.Success) return;
+            int pid;
+            if (int.TryParse(match.Groups[1].Value, out pid) && pid > 0)
+            {
+                using (Process proc = Process.GetProcessById(pid))
                 {
-                    using (Process proc = Process.GetProcessById(pid))
-                    {
-                        proc.Kill();
-                        proc.WaitForExit(2000);
-                    }
+                    proc.Kill();
+                    proc.WaitForExit(2000);
                 }
             }
         }
         catch { }
+    }
+
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RunValueName = "AntigravityMonitor";
+
+    private static string StartupShortcutPath()
+    {
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "Antigravity Monitor.lnk");
+    }
+
+    private static bool IsStartOnBootEnabled()
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKeyPath, false))
+            {
+                if (key != null)
+                {
+                    string val = key.GetValue(RunValueName) as string;
+                    if (!string.IsNullOrWhiteSpace(val)) return true;
+                }
+            }
+        }
+        catch { }
+        try
+        {
+            if (File.Exists(StartupShortcutPath())) return true;
+        }
+        catch { }
+        return false;
+    }
+
+    private static void SetStartOnBoot(bool enable)
+    {
+        try
+        {
+            if (enable)
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RunKeyPath))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue(RunValueName, "\"" + Assembly.GetExecutingAssembly().Location + "\" --companion");
+                    }
+                }
+            }
+            else
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKeyPath, true))
+                {
+                    if (key != null) key.DeleteValue(RunValueName, false);
+                }
+                string lnk = StartupShortcutPath();
+                if (File.Exists(lnk)) File.Delete(lnk);
+            }
+        }
+        catch { }
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                using (Process proc = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "schtasks.exe",
+                    Arguments = "/change /tn AntigravityMonitor " + (enable ? "/enable" : "/disable"),
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                }))
+                {
+                    if (proc != null) proc.WaitForExit(3000);
+                }
+            }
+            catch { }
+        });
     }
 #endif
 }

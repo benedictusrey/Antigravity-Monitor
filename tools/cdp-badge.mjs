@@ -47,7 +47,143 @@ export const PROBE = `(function(){
 })()`;
 
 /** Bump when the injected script changes; the guard below is built from it. */
-const VERSION = 28;
+const VERSION = 32;
+
+export const SIDE_PANEL_OPENER = `function openMonitorInSidePanel(targetUrl) {
+    var url = targetUrl || 'http://127.0.0.1:4599';
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    function isExcludedContainer(el) {
+      return !el || Boolean(el.closest('[data-agm-badge], [data-agm-card], [data-testid="conversation-view"], [data-testid="plugins-section"]'));
+    }
+    function findSidePanelMonitorTab() {
+      var newTabBtn = document.querySelector('[data-testid="side-panel-new-tab-button"]');
+      var tabStrip = newTabBtn && newTabBtn.parentElement;
+      var tabs = (tabStrip || document).querySelectorAll('button, [role="tab"]');
+      for (var i = 0; i < tabs.length; i++) {
+        var el = tabs[i];
+        if (isExcludedContainer(el)) continue;
+        if (el.offsetParent === null) continue;
+        var label = ((el.getAttribute('title') || el.textContent || '')).trim();
+        if (label !== 'Antigravity Monitor') continue;
+        if (tabStrip && tabStrip.contains(el)) return el;
+        var closeBtn = el.parentElement && el.parentElement.querySelector('button[aria-label="Close Antigravity Monitor"]');
+        if (closeBtn) return el;
+        if (typeof el.getBoundingClientRect === 'function') {
+          var rect = el.getBoundingClientRect();
+          if (rect.top >= 0 && rect.top < 120 && rect.left > 320) return el;
+        }
+      }
+      return null;
+    }
+    function findSidebarPluginItem() {
+      var items = document.querySelectorAll('[data-testid="plugin-sidebar-mcp-app-item"], [data-testid="plugins-section"] a, [data-testid="plugins-section"] button');
+      for (var i = 0; i < items.length; i++) {
+        var el = items[i];
+        if (!el || el.offsetParent === null) continue;
+        var text = (el.textContent || '').trim();
+        if (text === 'Antigravity Monitor') return el;
+      }
+      return null;
+    }
+    function findPluginLauncherInSidePanel() {
+      var items = document.querySelectorAll('button, [role="menuitem"], [role="option"], a');
+      for (var i = 0; i < items.length; i++) {
+        var el = items[i];
+        if (isExcludedContainer(el) || el.offsetParent === null) continue;
+        if (typeof el.getBoundingClientRect === 'function' && el.getBoundingClientRect().top < 90) continue;
+        var tid = el.getAttribute('data-testid') || '';
+        var text = (el.textContent || '').trim();
+        if (text === 'Antigravity Monitor' || /antigravity-monitor/i.test(tid)) return el;
+      }
+      return null;
+    }
+    function setUrlAndSubmit(input) {
+      var desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+      if (desc && desc.set) desc.set.call(input, url);
+      else input.value = url;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      if (input.form && typeof input.form.requestSubmit === 'function') {
+        input.form.requestSubmit();
+      } else if (input.form) {
+        input.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      } else {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+      }
+    }
+    function findBrowserCard() {
+      var direct = document.querySelector('[data-testid="new-tab-card-new-preview"]');
+      if (direct && direct.offsetParent !== null) return direct;
+      var items = document.querySelectorAll('button, [role="menuitem"], [role="option"]');
+      for (var m = 0; m < items.length; m++) {
+        var el = items[m];
+        if (isExcludedContainer(el) || el.offsetParent === null) continue;
+        if (/^browser$/i.test((el.textContent || '').trim())) return el;
+      }
+      return null;
+    }
+    return (async function () {
+      var existing = findSidePanelMonitorTab();
+      if (existing) {
+        existing.click();
+        return 'focused';
+      }
+      var sidebarPlugin = findSidebarPluginItem();
+      if (sidebarPlugin) {
+        sidebarPlugin.click();
+        return 'plugin-window';
+      }
+      var toggle = document.querySelector('[data-testid="toggle-aux-sidebar"]');
+      if (toggle && (toggle.getAttribute('aria-expanded') === 'false' || toggle.getAttribute('aria-pressed') === 'false')) {
+        toggle.click();
+        await sleep(180);
+      }
+      existing = findSidePanelMonitorTab();
+      if (existing) {
+        existing.click();
+        return 'focused';
+      }
+      var pluginCard = findPluginLauncherInSidePanel();
+      if (pluginCard) {
+        pluginCard.click();
+        return 'plugin-panel';
+      }
+      var urlInput = document.querySelector('[data-testid="browser-url-input"]');
+      if (urlInput && (!urlInput.value || urlInput.value === 'about:blank')) {
+        setUrlAndSubmit(urlInput);
+        return 'navigated';
+      }
+      var browserCard = findBrowserCard();
+      if (!browserCard) {
+        var newTab = document.querySelector('[data-testid="side-panel-new-tab-button"]');
+        if (newTab) {
+          newTab.click();
+          for (var w = 0; w < 12; w++) {
+            await sleep(60);
+            pluginCard = findPluginLauncherInSidePanel();
+            if (pluginCard) {
+              pluginCard.click();
+              return 'plugin-panel';
+            }
+            browserCard = findBrowserCard();
+            if (browserCard) break;
+          }
+        }
+      }
+      if (browserCard) {
+        browserCard.click();
+      }
+      for (var attempt = 0; attempt < 22; attempt++) {
+        await sleep(75);
+        urlInput = document.querySelector('[data-testid="browser-url-input"]');
+        if (urlInput) {
+          setUrlAndSubmit(urlInput);
+          return 'opened';
+        }
+      }
+      return 'unavailable';
+    })();
+  }`;
 
 export const INSTALL = `(function () {
   if (window.__agmVersion === ${VERSION}) return true;
@@ -261,6 +397,15 @@ export const INSTALL = `(function () {
       setFloating(false);
       if (pill.parentElement !== group.parentElement || pill.nextSibling !== group) {
         group.parentElement.insertBefore(pill, group);
+      }
+      return true;
+    }
+    var footer = document.querySelector('.agy-composer-footer');
+    var rightGroup = footer && footer.lastElementChild;
+    if (footer && rightGroup && rightGroup !== pill && footer.children.length >= 2) {
+      setFloating(false);
+      if (pill.parentElement !== footer || pill.nextSibling !== rightGroup) {
+        footer.insertBefore(pill, rightGroup);
       }
       return true;
     }
@@ -551,7 +696,7 @@ export const INSTALL = `(function () {
     var sessionRow = quotaRow('5-hour');
     var weeklyRow = quotaRow('Weekly');
     var updatedRow = row('Updated', '');
-    var quotaNote = mk('p', 'margin:8px 0 0;color:var(--muted-foreground,#9ca3af);font-size:11.5px;line-height:1.45');
+    var quotaNote = mk('p', 'margin:8px 0 0;color:var(--muted-foreground,#9ca3af);font-size:12px;line-height:1.45');
     var rows = mk('div', 'display:flex;flex-direction:column;gap:8px');
     rows.appendChild(modelRow.wrap);
     rows.appendChild(quotaModelRow.wrap);
@@ -562,7 +707,7 @@ export const INSTALL = `(function () {
 
     var ruleTwo = mk('div', 'height:1px;background:var(--border,rgba(255,255,255,0.1));margin:12px 0');
     var foot = mk('div', 'display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px');
-    var footLabel = mk('span', 'color:var(--muted-foreground,#9a9a9a);font-size:11px', 'Display');
+    var footLabel = mk('span', 'color:var(--muted-foreground,#9a9a9a);font-size:12px', 'Display');
     var group = mk('div', 'display:inline-flex;padding:2px;border-radius:9px;background:rgba(128,128,128,0.16)');
 
     function segment(value, textContent) {
@@ -915,86 +1060,7 @@ export const INSTALL = `(function () {
 
   // ---------------------------------------------------------------- side panel
 
-  function openMonitorInSidePanel(targetUrl) {
-    var url = targetUrl || 'http://127.0.0.1:4599';
-    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-    function findMonitorTab() {
-      var tabs = document.querySelectorAll('button, [role="tab"]');
-      for (var i = 0; i < tabs.length; i++) {
-        var el = tabs[i];
-        if (!el || el.closest('[data-agm-badge], [data-agm-card]')) continue;
-        var label = ((el.getAttribute('title') || el.textContent || '')).trim();
-        if (label === 'Antigravity Monitor') return el;
-      }
-      return null;
-    }
-    function setUrlAndSubmit(input) {
-      var desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-      if (desc && desc.set) desc.set.call(input, url);
-      else input.value = url;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      if (input.form && typeof input.form.requestSubmit === 'function') {
-        input.form.requestSubmit();
-      } else if (input.form) {
-        input.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-      } else {
-        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-      }
-    }
-    function findBrowserCard() {
-      var direct = document.querySelector('[data-testid="new-tab-card-new-preview"]');
-      if (direct && direct.offsetParent !== null) return direct;
-      var items = document.querySelectorAll('button, [role="menuitem"], [role="option"]');
-      for (var m = 0; m < items.length; m++) {
-        var el = items[m];
-        if (!el || el.offsetParent === null || el.closest('[data-agm-badge], [data-agm-card]')) continue;
-        if (/^browser$/i.test((el.textContent || '').trim())) return el;
-      }
-      return null;
-    }
-    return (async function () {
-      var toggle = document.querySelector('[data-testid="toggle-aux-sidebar"]');
-      if (toggle && (toggle.getAttribute('aria-expanded') === 'false' || toggle.getAttribute('aria-pressed') === 'false')) {
-        toggle.click();
-        await sleep(180);
-      }
-      var existing = findMonitorTab();
-      if (existing) {
-        existing.click();
-        return 'focused';
-      }
-      var urlInput = document.querySelector('[data-testid="browser-url-input"]');
-      if (urlInput && (!urlInput.value || urlInput.value === 'about:blank')) {
-        setUrlAndSubmit(urlInput);
-        return 'navigated';
-      }
-      var browserCard = findBrowserCard();
-      if (!browserCard) {
-        var newTab = document.querySelector('[data-testid="side-panel-new-tab-button"]');
-        if (newTab) {
-          newTab.click();
-          for (var w = 0; w < 12; w++) {
-            await sleep(60);
-            browserCard = findBrowserCard();
-            if (browserCard) break;
-          }
-        }
-      }
-      if (browserCard) {
-        browserCard.click();
-      }
-      for (var attempt = 0; attempt < 22; attempt++) {
-        await sleep(75);
-        urlInput = document.querySelector('[data-testid="browser-url-input"]');
-        if (urlInput) {
-          setUrlAndSubmit(urlInput);
-          return 'opened';
-        }
-      }
-      return 'unavailable';
-    })();
-  }
+  ${SIDE_PANEL_OPENER}
 
   window.__agmOpenPanel = openMonitorInSidePanel;
 
@@ -1237,6 +1303,10 @@ export function resolveCandidateEndpoints(explicitPorts = [], endpoints = devtoo
     // Fallback for Electron builds launched with --remote-debugging-port=9222 without a port file.
     list.push({ port: 9222, app: null });
   }
+  if (!list.some((entry) => entry.port === 9223)) {
+    // Fallback for Antigravity IDE launched with --remote-debugging-port=9223 without a port file.
+    list.push({ port: 9223, app: 'ide' });
+  }
   return list;
 }
 
@@ -1307,9 +1377,10 @@ export function readRendererContext() {
   const direct = routeRe.exec(route);
   const query = url.searchParams.get('conversationId') || url.searchParams.get('cascadeId');
   let conversationId = direct ? direct[1] : query && /^[0-9a-f-]{8,}$/i.test(query) ? query : null;
+  const isExtensionView = url.searchParams.get('extensionView') === 'true';
   const composer = !!document.querySelector('[data-testid="agent-input-box"], [data-testid*="composer"], [data-testid*="chat-input"]');
   const local = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
-  const newThread = composer && local && /^\/(?:new|new-chat|chat\/new)?\/?$/.test(route);
+  const newThread = !isExtensionView && composer && local && /^\/(?:new|new-chat|chat\/new)?\/?$/.test(route);
   if (!conversationId && !newThread) {
     const selected = document.querySelector('[aria-current="page"][href*="/c/"], [aria-current="page"][href*="/chat/"], [data-conversation-id][data-active="true"], [data-testid="conversation-row-sidebar"][data-active="true"]');
     if (selected) {
@@ -1333,13 +1404,18 @@ export function readRendererContext() {
   for (let index = 0; index < key.length; index++) hash = ((hash << 5) - hash + key.charCodeAt(index)) | 0;
   const rawModel = document.querySelector('[data-testid="model-selector-trigger"], [data-testid*="model-selector"], [data-testid*="model-picker"], button[aria-label*="Model" i]')?.textContent?.trim().slice(0, 160) || null;
   const modelName = rawModel ? rawModel.replace(/\s*(?:New|Notice|Unavailable|Beta|Preview)\s*$/i, '').trim() || null : null;
+  const pageTitle = typeof document !== 'undefined' && typeof document.title === 'string'
+    ? document.title.trim().slice(0, 200) || null
+    : null;
   return {
     port,
     conversationId,
     viewState,
+    extensionView: isExtensionView,
     contextKey: String(hash),
     modelName,
-    productName: window.__APP_CONFIG__?.productName || null,
+    pageTitle,
+    productName: url.searchParams.get('appName') || window.__APP_CONFIG__?.productName || null,
     appVersion: typeof window.__APP_CONFIG__?.appVersion === 'string' ? window.__APP_CONFIG__.appVersion.trim() || null : null,
   };
 }
@@ -1430,11 +1506,12 @@ export function rendererPayload(snapshot, instance, context) {
   const scoped = { ...snapshot, conversation: instance.conversation, backend: instance.backend,
     quota: instance.quota || (snapshot.backend?.id === instance.backend.id ? snapshot.quota : undefined) };
   const matches = context.viewState === 'conversation' && instance.conversation && instance.conversation.id === context.conversationId;
-  const payload = matches
+  const extensionMatch = context.extensionView === true && context.viewState === 'unknown' && Boolean(instance.conversation);
+  const payload = matches || extensionMatch
     ? toPayload(scoped, app, context.modelName)
     : selectionPayload(context.viewState, app);
   if (!payload.show) Object.assign(payload, selectionPayload('conversation', app));
-  if (!matches || payload.card.percent === null) decorateQuota(payload, scoped, context.modelName || instance.conversation?.modelName);
+  if (!(matches || extensionMatch) || payload.card.percent === null) decorateQuota(payload, scoped, context.modelName || instance.conversation?.modelName);
   if (payload.card) {
     const email = typeof snapshot?.account?.email === 'string' && snapshot.account.email.trim()
       ? snapshot.account.email.trim()
@@ -1539,7 +1616,7 @@ function appName(app) {
  * and external websites opened in Antigravity's built-in browser (e.g. gemini.google.com) are rejected.
  */
 export function isAttachableTarget(target, dashboardUrl = null) {
-  if (!target || target.type !== 'page' || typeof target.webSocketDebuggerUrl !== 'string') {
+  if (!target || (target.type !== 'page' && target.type !== 'iframe') || typeof target.webSocketDebuggerUrl !== 'string') {
     return false;
   }
   if (typeof target.url === 'string' && target.url.length > 0) {
@@ -1552,7 +1629,9 @@ export function isAttachableTarget(target, dashboardUrl = null) {
     const proto = parsed.protocol;
     const isLocalHost = ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname);
     const isAppProto = proto === 'vscode-webview:' || proto === 'vscode-file:' || proto === 'file:';
-    if (!isAppProto && !((proto === 'http:' || proto === 'https:') && isLocalHost)) {
+    if (target.type === 'iframe') {
+      if (!((proto === 'http:' || proto === 'https:') && isLocalHost)) return false;
+    } else if (!isAppProto && !((proto === 'http:' || proto === 'https:') && isLocalHost)) {
       return false;
     }
     if (dashboardUrl) {
@@ -1563,6 +1642,8 @@ export function isAttachableTarget(target, dashboardUrl = null) {
         // Ignore malformed dashboardUrl.
       }
     }
+  } else if (target.type === 'iframe') {
+    return false;
   }
   return true;
 }
@@ -1766,6 +1847,8 @@ export class BadgeInjector {
           appVersion: null,
           observed: null,
           viewState: 'unknown',
+          extensionView: false,
+          pageTitle: null,
           contextKey: null,
           modelName: null,
           tokenSentForPort: null,
@@ -1833,6 +1916,8 @@ export class BadgeInjector {
     const conversationId = typeof context.conversationId === 'string' ? context.conversationId : null;
     renderer.observed = conversationId;
     renderer.viewState = context.viewState || 'unknown';
+    renderer.extensionView = context.extensionView === true;
+    renderer.pageTitle = typeof context.pageTitle === 'string' && context.pageTitle.trim() ? context.pageTitle.trim() : null;
     renderer.contextKey = context.contextKey;
     renderer.modelName = typeof context.modelName === 'string' ? context.modelName : null;
     if (typeof context.appVersion === 'string' && context.appVersion && context.appVersion !== renderer.appVersion) {
@@ -1857,8 +1942,10 @@ export class BadgeInjector {
         }
       }
       // A null reading is meaningful: a new-chat page must not keep showing the
-      // previous conversation.
-      this.onObserved(renderer.backendPort, conversationId, renderer.viewState, renderer.modelName);
+      // previous conversation. In extensionView (IDE iframe), route stays `/` with document.title carrying the thread name.
+      if (conversationId !== null || renderer.viewState === 'new-thread' || !renderer.extensionView || Boolean(renderer.pageTitle)) {
+        this.onObserved(renderer.backendPort, conversationId, renderer.viewState, renderer.modelName, renderer.pageTitle);
+      }
     }
   }
 
@@ -1891,10 +1978,12 @@ export class BadgeInjector {
     await this.ensureConnections();
     const candidates = [...this.renderers.values()].filter((entry) => !entry.connection.closed);
     if (candidates.length === 0) return false;
-    let chosen = candidates[0];
-    if (candidates.length > 1) {
+    const preferred = candidates.filter((entry) => (entry.app ?? entry.appHint) !== 'ide');
+    const pool = preferred.length > 0 ? preferred : candidates;
+    let chosen = pool[0];
+    if (pool.length > 1) {
       let bestScore = -1;
-      for (const entry of candidates) {
+      for (const entry of pool) {
         try {
           const score = await entry.connection.evaluate('(document.hasFocus() ? 2 : 0) + (document.hidden ? 0 : 1)');
           if (typeof score === 'number' && score > bestScore) {
@@ -1911,7 +2000,7 @@ export class BadgeInjector {
         `window.__agmOpenPanel ? window.__agmOpenPanel(${JSON.stringify(this.dashboardUrl)}) : 'unavailable'`,
         6000,
       );
-      return outcome === 'focused' || outcome === 'opened' || outcome === 'navigated';
+      return outcome === 'focused' || outcome === 'opened' || outcome === 'navigated' || outcome === 'plugin-window' || outcome === 'plugin-panel';
     } catch {
       return false;
     }
@@ -2015,7 +2104,11 @@ export class BadgeInjector {
     }
 
     const payload = rendererPayload(this.latest, instance, {
-      viewState: renderer.viewState, conversationId: renderer.observed, contextKey: renderer.contextKey, modelName: renderer.modelName,
+      viewState: renderer.viewState,
+      extensionView: renderer.extensionView,
+      conversationId: renderer.observed,
+      contextKey: renderer.contextKey,
+      modelName: renderer.modelName,
     });
     if (payload.card) payload.card.dashboardUrl = this.dashboardUrl;
     await renderer.connection.evaluate(`window.__agmApply(${JSON.stringify(payload)})`);

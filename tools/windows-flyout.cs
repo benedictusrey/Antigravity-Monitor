@@ -92,6 +92,7 @@ internal sealed class FlyoutModel
     public double? TokPerSec = null;
     public long TodayTokens = 0, MonthTokens = 0;
     public string CheckedTime = "";
+    public bool Relaunching = false;
     public List<FlyoutQuotaGroup> Pools = new List<FlyoutQuotaGroup>();
 }
 
@@ -117,7 +118,7 @@ internal sealed class TrayFlyoutForm : Form
     private bool _fetching = false;
     private string _hoveredId = null;
 
-    private Rectangle _rcEmail, _rcTheme, _rcRefresh, _rcClose, _rcOpenAg;
+    private Rectangle _rcEmail, _rcTheme, _rcRefresh, _rcClose, _rcOpenAg, _rcRelaunchIde;
 
     private readonly Font _fTitle = new Font("Segoe UI Semibold", 10.5f);
     private readonly Font _fSection = new Font("Segoe UI Semibold", 9.0f);
@@ -216,11 +217,18 @@ internal sealed class TrayFlyoutForm : Form
         Hide();
     }
 
+    private int DesiredHeight()
+    {
+        int poolCount = Math.Min(3, _model.Pools.Count);
+        int quotaH = poolCount == 0 ? 70 : 38 + poolCount * 46;
+        return 52 + 10 + 148 + 10 + quotaH + 10 + 66 + 38;
+    }
+
     private void PositionBottomRight()
     {
         Rectangle area = Screen.PrimaryScreen.WorkingArea;
         int w = 388;
-        int h = Math.Min(524, Math.Max(420, area.Height - 24));
+        int h = Math.Min(DesiredHeight(), area.Height - 24);
         ClientSize = new Size(w, h);
         Location = new Point(area.Right - w - 12, area.Bottom - h - 12);
     }
@@ -312,7 +320,12 @@ internal sealed class TrayFlyoutForm : Form
                     {
                         BeginInvoke((Action)(() =>
                         {
+                            int prevH = ClientSize.Height;
                             _model = parsed;
+                            if (Visible && DesiredHeight() != prevH)
+                            {
+                                PositionBottomRight();
+                            }
                             Invalidate();
                         }));
                     }
@@ -341,6 +354,7 @@ internal sealed class TrayFlyoutForm : Form
         if (_rcTheme.Contains(pt)) return "theme";
         if (!string.IsNullOrEmpty(_model.AccountEmail) && _rcEmail.Contains(pt)) return "email";
         if (_rcOpenAg.Contains(pt)) return "openAg";
+        if (_rcRelaunchIde.Contains(pt)) return "relaunchIde";
         return null;
     }
 
@@ -372,13 +386,22 @@ internal sealed class TrayFlyoutForm : Form
         {
             if (_model.Status == "unauthorized")
             {
-                SendCommandAsync("relaunchApp");
+                if (!_model.Relaunching)
+                {
+                    _model.Relaunching = true;
+                    Invalidate();
+                    SendCommandAsync("relaunchApp");
+                }
             }
             else
             {
                 HideFlyout();
                 if (_onOpenInAntigravity != null) _onOpenInAntigravity();
             }
+        }
+        else if (hit == "relaunchIde")
+        {
+            SendCommandAsync("relaunchIde");
         }
     }
 
@@ -402,12 +425,12 @@ internal sealed class TrayFlyoutForm : Form
         {
             try { g.DrawIcon(_brandIcon, new Rectangle(14, 14, 22, 22)); } catch { }
         }
-        DrawText(g, "Antigravity Monitor", _fTitle, p.Text, new Rectangle(44, 9, 175, 19), StringAlignment.Near);
+        DrawText(g, "Antigravity Monitor", _fTitle, p.Text, new Rectangle(44, 9, 163, 19), StringAlignment.Near);
 
         string emailText = !string.IsNullOrEmpty(_model.AccountEmail)
             ? ((_emailRevealed.HasValue ? _emailRevealed.Value : !_model.MaskDefault) ? _model.AccountEmail : _model.MaskedEmail)
             : "Local telemetry";
-        _rcEmail = new Rectangle(44, 28, 185, 18);
+        _rcEmail = new Rectangle(44, 28, 172, 18);
         Color emailColor = _hoveredId == "email" ? p.Accent : p.Muted;
         DrawText(g, emailText, _fSmall, emailColor, _rcEmail, StringAlignment.Near);
 
@@ -426,7 +449,7 @@ internal sealed class TrayFlyoutForm : Form
             : _model.Status == "disconnected" ? "Standby" : "Sync";
         Color statusColor = _model.Status == "ok" ? p.Ok
             : _model.Status == "unauthorized" ? p.Danger : p.Muted;
-        Rectangle rcStatus = new Rectangle(_rcTheme.X - 52, 16, 46, 20);
+        Rectangle rcStatus = new Rectangle(_rcTheme.X - 64, 16, 58, 20);
         DrawBadge(g, rcStatus, statusText, statusColor, p);
 
         int y = headerH + 10;
@@ -448,8 +471,10 @@ internal sealed class TrayFlyoutForm : Form
 
         string volText = _model.Used.HasValue
             ? FormatTokens(_model.Used.Value) + (_model.Capacity.HasValue ? " / " + FormatTokens(_model.Capacity.Value) : " tok")
-            : "Waiting for reading";
-        DrawText(g, volText, _fMono, p.Muted, new Rectangle(rcCtx.X + 128, rcCtx.Y + 46, 145, 20), StringAlignment.Near);
+            : (_model.Status == "unauthorized"
+                ? (_model.Relaunching ? "Relaunching Antigravity…" : "Click Relaunch Antigravity below")
+                : "Waiting for reading");
+        DrawText(g, volText, _fMono, p.Muted, new Rectangle(rcCtx.X + 128, rcCtx.Y + 46, cardW - 140, 20), StringAlignment.Near);
 
         if (!string.IsNullOrEmpty(_model.Source))
         {
@@ -544,12 +569,21 @@ internal sealed class TrayFlyoutForm : Form
         // 5. Footer Strip
         int footY = H - 30;
         bool needsAuth = _model.Status == "unauthorized";
-        _rcOpenAg = new Rectangle(pad, footY - 2, needsAuth ? 215 : 185, 22);
-        string footLabel = needsAuth ? "Relaunch Antigravity with Monitor" : "Open in Antigravity Panel";
-        Color footColor = _hoveredId == "openAg" ? p.Text : (needsAuth ? p.Warn : p.Accent);
+        bool relaunching = needsAuth && _model.Relaunching;
+        int primaryW = needsAuth ? 128 : 108;
+        _rcOpenAg = new Rectangle(pad, footY - 2, primaryW, 22);
+        string footLabel = relaunching ? "Relaunching…" : (needsAuth ? "Relaunch Antigravity" : "Antigravity Panel");
+        Color footColor = relaunching ? p.Muted : (_hoveredId == "openAg" ? p.Text : (needsAuth ? p.Warn : p.Accent));
         DrawText(g, footLabel, _fBold, footColor, _rcOpenAg, StringAlignment.Near);
+
+        int sepX = pad + primaryW;
+        DrawText(g, "\u00B7", _fSmall, p.Muted, new Rectangle(sepX, footY, 12, 18), StringAlignment.Center);
+
+        _rcRelaunchIde = new Rectangle(sepX + 12, footY - 2, 82, 22);
+        DrawText(g, "Relaunch IDE", _fBold, _hoveredId == "relaunchIde" ? p.Text : p.Accent, _rcRelaunchIde, StringAlignment.Near);
+
         string checkedLabel = !string.IsNullOrEmpty(_model.CheckedTime) ? "Updated " + _model.CheckedTime : "Local · 127.0.0.1";
-        DrawText(g, checkedLabel, _fSmall, p.Muted, new Rectangle(W - pad - 150, footY, 150, 18), StringAlignment.Far);
+        DrawText(g, checkedLabel, _fSmall, p.Muted, new Rectangle(W - pad - 120, footY, 120, 18), StringAlignment.Far);
 
         // Outer crisp 1px border
         using (var pen = new Pen(p.Border)) g.DrawRectangle(pen, 0, 0, W - 1, H - 1);
@@ -599,6 +633,10 @@ internal sealed class TrayFlyoutForm : Form
                     g.DrawLine(pen, cx, cy + 5, cx, cy + 6);
                     g.DrawLine(pen, cx - 6, cy, cx - 5, cy);
                     g.DrawLine(pen, cx + 5, cy, cx + 6, cy);
+                    g.DrawLine(pen, cx - 4, cy - 4, cx - 3, cy - 3);
+                    g.DrawLine(pen, cx + 3, cy + 3, cx + 4, cy + 4);
+                    g.DrawLine(pen, cx + 4, cy - 4, cx + 3, cy - 3);
+                    g.DrawLine(pen, cx - 3, cy + 3, cx - 4, cy + 4);
                 }
                 else
                 {
@@ -692,6 +730,8 @@ internal sealed class TrayFlyoutForm : Form
         if (snap == null) return m;
 
         m.Status = Str(snap, "status") ?? "connecting";
+        var badge = Dict(snap, "badge");
+        m.Relaunching = badge != null && Bool(badge, "relaunching") == true;
         var prefs = Dict(snap, "prefs");
         m.WarningThreshold = (int)(Num(prefs, "warningThreshold") ?? 80);
         m.MaskDefault = Bool(prefs, "maskPersonalInfo") ?? true;

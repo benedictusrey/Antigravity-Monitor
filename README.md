@@ -13,13 +13,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases"><img src="https://img.shields.io/badge/release-v1.3.0-4daafc?style=flat-square" alt="v1.3.0 release"></a>
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases"><img src="https://img.shields.io/badge/release-v1.4.0-4daafc?style=flat-square" alt="v1.4.0 release"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d?style=flat-square" alt="Requires Node.js 22 or newer"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4daafc?style=flat-square" alt="MIT license"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases/tag/v1.3.0">Download v1.3.0</a> ·
+  <a href="https://github.com/benedictusrey/Antigravity-Monitor/releases/tag/v1.4.0">Download v1.4.0</a> ·
   <a href="USER_GUIDE.md">User guide</a> ·
   <a href="PRIVACY.md">Privacy</a> ·
   <a href="https://github.com/benedictusrey/Antigravity-Monitor/actions/workflows/ci.yml">Build checks</a> ·
@@ -28,23 +28,23 @@
 
 ![Antigravity Monitor showing actual context and quota readings](assets/banners/antigravity-monitor-hero.jpg)
 
-Antigravity Monitor adds a small composer readout, a detail card, and a dashboard to Antigravity. It follows the visible conversation, distinguishes new threads and child subagents, automatically discovers new models and quota pools from the local backend, and refreshes 5-hour and weekly quotas continuously. Native extensions add a status bar and dashboard inside Antigravity IDE and Visual Studio Code.
+Antigravity Monitor adds a small composer readout, a detail card, an interactive Antigravity Desktop plugin (`MCP App` + `SessionStart`/`PreInvocation` token bridge), and a dashboard to Antigravity. It runs directly inside Antigravity Desktop on every fresh launch with zero relaunching needed, automatically bridges Antigravity IDE (`extensionView` + VSIX companion fallback) with no IDE relaunch required, follows the visible conversation, distinguishes new threads and child subagents, automatically discovers new models and quota pools from the local backend, and refreshes 5-hour and weekly quotas continuously. Native extensions add a status bar and dashboard inside Antigravity IDE and Visual Studio Code.
 
 ## Get started
 
-Download the archive for your OS (**Antigravity-Monitor-1.3.0-windows.zip**, **Antigravity-Monitor-1.3.0-macos.zip**, or **Antigravity-Monitor-1.3.0-linux.zip**), or **Antigravity-Monitor-1.3.0-companion.zip** for all platforms together, extract the entire folder, and keep its files together. Install [Node.js 22 or newer](https://nodejs.org/) first. No administrator or sudo access is needed.
+Download the archive for your OS (**Antigravity-Monitor-1.4.0-windows.zip**, **Antigravity-Monitor-1.4.0-macos.zip**, or **Antigravity-Monitor-1.4.0-linux.zip**), or **Antigravity-Monitor-1.4.0-companion.zip** for all platforms together, extract the entire folder, and keep its files together. Install [Node.js 22 or newer](https://nodejs.org/) first. No administrator or sudo access is needed.
 
 | Platform | Install from the extracted folder | Startup |
 |---|---|---|
-| **Windows** | Open **Install Antigravity Monitor.exe** (or `.cmd`). Run **Antigravity Monitor_Uninstaller.exe** (or Start Menu **Uninstall Antigravity Monitor**) for a clean removal. | Silent sign-in startup via `Antigravity Monitor.exe --companion`, native Windows 11 system tray + lightweight GDI+ flyout (no Edge/WebView2), `AntigravityMonitor` crash-restarting Scheduled Task, **Antigravity (with Monitor)** Start Menu shortcut, and VS Code / Antigravity IDE / Insiders VSIX. |
-| **macOS** | Double-click **Install Antigravity Monitor.command** or run `sh "Install Antigravity Monitor.command"`. | Auto-locates `node` (Homebrew, nvm, fnm, volta), sets LaunchAgent, installs editor VSIX. |
-| **Linux** | Run `./"Install Antigravity Monitor.sh"` (or `sh "Install Antigravity Monitor.sh"`). | Auto-locates `node`, adds XDG autostart + desktop app entry, installs editor VSIX. |
+| **Windows** | Open **Install Antigravity Monitor.exe** (or `.cmd`). Run **Antigravity Monitor_Uninstaller.exe** (or Start Menu **Uninstall Antigravity Monitor**) for a clean removal. | Native Antigravity Plugin (`~/.gemini/config/plugins/antigravity-monitor`) with side-panel & sidebar **Antigravity Monitor** MCP App + `SessionStart`/`PreInvocation` auth bridge, silent sign-in startup via `Antigravity Monitor.exe --companion`, native Windows 11 system tray with **Start on Boot** toggle & dynamic-height lightweight GDI+ flyout (no Edge/WebView2), `AntigravityMonitor` crash-restarting Scheduled Task, automatic `--remote-debugging-port` shortcut maintenance + boot-safe Desktop recovery, and VS Code / Antigravity IDE / Insiders VSIX. |
+| **macOS** | Double-click **Install Antigravity Monitor.command** or run `sh "Install Antigravity Monitor.command"`. | Native Antigravity Plugin (`~/.gemini/config/plugins/antigravity-monitor`), auto-locates `node` (Homebrew, nvm, fnm, volta), sets LaunchAgent, installs editor VSIX. |
+| **Linux** | Run `./"Install Antigravity Monitor.sh"` (or `sh "Install Antigravity Monitor.sh"`). | Native Antigravity Plugin (`~/.gemini/config/plugins/antigravity-monitor`), auto-locates `node`, adds XDG autostart + desktop app entry, installs editor VSIX. |
 
-Open Antigravity normally. The companion starts automatically when you sign in, stays separate from the app, watches for Antigravity updates and DevTools endpoints so it refreshes telemetry, model catalogs, and shortcuts simultaneously, and reconnects whenever the local backend restarts. The dashboard is at **http://127.0.0.1:4599**. Installers also install the included VSIX into supported editor CLIs they find; reload editor windows afterward.
+Open Antigravity or Antigravity IDE normally — **no relaunch required**. The bundled Antigravity plugin registers **Antigravity Monitor** directly inside Antigravity Desktop's side panel and left sidebar via MCP Apps and supplies local session auth automatically to the background companion (`http://127.0.0.1:4599`) and native Windows tray flyout. Installers also install the included VSIX into supported editor CLIs they find; reload editor windows afterward.
 
 **Windows has been tested locally. macOS and Linux implementations include discovery, storage, installers, and startup integration; native platform acceptance remains pending.** Linux needs `ps` and either `lsof` or `ss` for socket discovery, plus `xdg-open` to launch the dashboard. macOS uses `ps`, `lsof`, `open`, and `launchctl`.
 
-The white Antigravity desktop app has no VS Code extension host. It needs the companion, not only the VSIX. Its inline composer snippet appears to the left of `Turbo` once Antigravity runs with `--remote-debugging-port=9222`: use **Relaunch Antigravity with badge** in the dashboard (**http://127.0.0.1:4599**), launch **Antigravity (with Monitor)** from the Windows Start Menu, or see [DevTools setup](USER_GUIDE.md#enable-the-inline-badge) (an in-app **Reload** or plain shortcut keeps DevTools off). The monitor does not patch Antigravity's installed files.
+The white Antigravity desktop app has no VS Code extension host. Its bundled Antigravity plugin gives you the native **Antigravity Monitor** panel and live telemetry right on every fresh launch; the inline composer pill attaches automatically on port `9222` (Antigravity Desktop) and port `9223` (`Antigravity IDE` composer footer left of the send button), with one-click **Relaunch Antigravity** / **Relaunch IDE** recovery actions in the dashboard and tray flyout when needed (while never cold-launching Antigravity on Windows boot). The monitor does not patch Antigravity's installed files.
 
 > [!IMPORTANT]
 > On Windows, do not double-click the VSIX. Microsoft's Visual Studio installer cannot install VS Code extensions. Use the project installer or an editor's **Install from VSIX** command.
@@ -100,7 +100,7 @@ npm run package
 
 The companion has no third-party runtime dependencies. Development tools are pinned in the lockfile. Run `npm run live` against a running Antigravity backend for local integration checks; its diagnostic output may include conversation titles.
 
-See [Architecture](docs/ARCHITECTURE.md), [Audit and validation](docs/AUDIT.md), and [Release preparation](RELEASING.md) for implementation details and verification limits. The source, extension package, companion, and current release files use **v1.3.0**.
+See [Architecture](docs/ARCHITECTURE.md), [Audit and validation](docs/AUDIT.md), and [Release preparation](RELEASING.md) for implementation details and verification limits. The source, extension package, companion, plugin, and current release files use **v1.4.0**.
 
 On Windows, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-launchers.ps1` before installing from source or building a complete companion release. Building needs the Windows .NET Framework C# compiler. Downloaded packages already contain the launchers and need no compiler. Run `scripts/check-windows-launchers.ps1` to verify embedded icons and launch targets.
 

@@ -1,0 +1,27 @@
+{
+  "name": "antigravity-monitor",
+  "displayName": "Antigravity Monitor",
+  "version": "1.4.0",
+  "description": "Live context window, model quota pools, token speed, and active thread telemetry directly inside Antigravity Desktop with zero relaunch required.",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "Benedictus RH (@benedictusrey)",
+    "url": "https://github.com/benedictusrey"
+  },
+  "homepage": "https://github.com/benedictusrey/Antigravity-Monitor",
+  "repository": "https://github.com/benedictusrey/Antigravity-Monitor",
+  "license": "MIT",
+  "keywords": [
+    "antigravity",
+    "context-window",
+    "quota",
+    "tokens",
+    "telemetry",
+    "monitor"
+  ],
+  "suggestedPrompts": [
+    "Open the Antigravity Monitor dashboard in the side panel",
+    "Show my current context window usage, cache hit ratio, and output speed",
+    "Check my remaining 5-hour and weekly quota pools across models"
+  ]
+}

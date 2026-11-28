@@ -276,6 +276,20 @@ test('computes decode tok/s from viewableAt to finishedGeneratingAt and falls ba
   ]);
   assert.equal(subHalfSec.measured?.tokPerSec, 50);
 
+  const bufferedBurst = analyzeSteps([
+    {
+      type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',
+      metadata: {
+        createdAt: '2026-11-27T14:00:00.000Z',
+        startedAt: '2026-11-27T14:00:14.637Z',
+        viewableAt: '2026-11-27T14:00:14.086Z',
+        finishedGeneratingAt: '2026-11-27T14:00:14.637Z',
+        modelUsage: { inputTokens: 1000, outputTokens: 1109, responseOutputTokens: 1023, thinkingOutputTokens: 86 },
+      },
+    },
+  ]);
+  assert.equal(bufferedBurst.measured?.tokPerSec, 75.8);
+
   const noFinish = analyzeSteps([
     {
       type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',

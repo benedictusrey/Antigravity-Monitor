@@ -55,7 +55,7 @@ export const STRINGS = {
     openDashboard: 'Open dashboard',
     noConversation: 'No conversation is active in Antigravity.',
     noBackend: 'No Antigravity language server was found.',
-    unauthorized: 'Antigravity is running, but its language server needs a request token this monitor cannot read.',
+    unauthorized: 'Antigravity IDE is running, and its language server needs a request token. Keep the Antigravity Monitor companion running in the background to connect automatically.',
     stale: 'Last reading is out of date',
   },
   actions: {

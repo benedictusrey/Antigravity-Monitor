@@ -95,7 +95,8 @@
 }
 
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme]) body[data-host="companion"] {
+  :root:not([data-theme]) body[data-host="companion"],
+  :root:not([data-theme]) body[data-host="mcp-app"] {
     color-scheme: light;
     --ground: #eef1f6;
     --surface: #ffffff;
@@ -186,34 +187,9 @@ body[data-panel="1"] .footer {
   }
 }
 
-@media (max-width: 520px) {
-  .shell {
-    padding: 10px 12px 8px;
-  }
-  .topbar {
-    gap: 8px;
-    padding-bottom: 8px;
-  }
-  .brand__text h1 {
-    font-size: 15.5px;
-  }
-  .subtitle {
-    font-size: 11.5px;
-  }
-  .topbar-actions {
-    gap: 6px;
-  }
-  .kpi-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .footer__keys {
-    display: none;
-  }
-}
-
 .panel,
 .kpi-strip,
-.overview-grid {
+.band-split {
   box-shadow: var(--panel-shadow);
 }
 
@@ -371,30 +347,8 @@ body[data-host="editor"] .shell {
   flex: 0 0 auto;
 }
 
-.chip--streaming::after {
-  content: "";
-  position: absolute;
-  left: var(--chip-pad-x);
-  top: 50%;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  transform-origin: center;
-  pointer-events: none;
-  animation: chip-halo 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
-@keyframes chip-halo {
-  0% { transform: translateY(-50%) scale(1); opacity: 0.55; }
-  75% { transform: translateY(-50%) scale(2.2); opacity: 0; }
-  100% { transform: translateY(-50%) scale(2.2); opacity: 0; }
-}
-
-@keyframes live-halo {
-  0% { transform: scale(1); opacity: 0.55; }
-  75% { transform: scale(2.2); opacity: 0; }
-  100% { transform: scale(2.2); opacity: 0; }
+.chip--streaming {
+  background: color-mix(in srgb, var(--ok) 12%, var(--surface));
 }
 
 @keyframes pane-enter {
@@ -505,8 +459,8 @@ body[data-host="editor"] .shell {
 }
 
 .btn--small {
-  padding: 2px 9px;
-  min-height: 26px;
+  padding: 3px 10px;
+  min-height: 28px;
   font-size: 12px;
 }
 
@@ -599,13 +553,13 @@ body[data-host="editor"] .shell {
   align-items: center;
   justify-content: center;
   min-width: 18px;
-  height: 17px;
+  height: 18px;
   padding: 0 5px;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--ok) 18%, transparent);
   color: var(--ok);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -631,9 +585,20 @@ body[data-host="editor"] .shell {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
-    animation: none !important;
+  .pane--entering,
+  .btn[aria-busy="true"] .btn__icon,
+  .metric-flash {
+    animation: none;
+  }
+  .tabs__indicator,
+  .ruler__fill,
+  .bar__fill,
+  .usage-day__bar,
+  .chip--action,
+  .btn,
+  .list__row,
+  .switch__knob {
+    transition-duration: 0ms;
   }
 }
 
@@ -903,7 +868,7 @@ body[data-host="editor"] .shell {
 
 .composition__share {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .hero-foot {
@@ -1002,13 +967,13 @@ body[data-host="editor"] .shell {
 .quota-reset {
   font-family: var(--mono);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .quota-foot {
   margin-top: auto;
   padding: 8px 14px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
   background: color-mix(in srgb, var(--surface-alt) 50%, transparent);
 }
@@ -1062,7 +1027,7 @@ body[data-host="editor"] .shell {
 }
 
 .kpi-cell__sub {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1095,7 +1060,7 @@ body[data-host="editor"] .shell {
   align-items: center;
   padding: 1px 7px;
   border-radius: var(--radius-sm);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   border: 1px solid var(--border);
   color: var(--muted);
@@ -1240,7 +1205,7 @@ body[data-host="editor"] .shell {
   flex-direction: column;
   justify-content: space-between;
   padding-top: 4px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
   color: var(--muted);
   text-align: right;
@@ -1276,7 +1241,12 @@ body[data-host="editor"] .shell {
   height: 100%;
   min-width: 0;
   cursor: pointer;
-  outline: none;
+}
+
+.usage-day:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 .usage-day__bar {
@@ -1302,7 +1272,7 @@ body[data-host="editor"] .shell {
   display: grid;
   grid-column: 2;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -1522,17 +1492,6 @@ body[data-host="editor"] .shell {
   background: var(--ok);
 }
 
-.dot--running::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: var(--ok);
-  transform-origin: center;
-  animation: live-halo 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-  pointer-events: none;
-}
-
 /* ----------------------------------------------------------- filter toolbar */
 
 .toolbar {
@@ -1570,6 +1529,7 @@ body[data-host="editor"] .shell {
   font-family: inherit;
   font-size: 12.5px;
   font-weight: 500;
+  min-height: 28px;
   padding: 4px 10px;
   cursor: pointer;
   transition: color var(--m-out) var(--ease-ui), background-color var(--m-out) var(--ease-ui), border-color var(--m-out) var(--ease-ui);
@@ -1921,11 +1881,16 @@ body[data-host="editor"] .shell {
   .snippet-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media (max-width: 520px) {
-  .shell { padding: 12px 12px 8px; }
-  .topbar { flex-direction: column; align-items: stretch; }
+@media (max-width: 560px) {
+  .shell { padding: 10px 12px 8px; }
+  .topbar { flex-direction: column; align-items: stretch; gap: 8px; padding-bottom: 8px; }
+  .brand__text h1 { font-size: 15.5px; }
+  .subtitle { font-size: 12px; white-space: normal; line-height: 1.35; }
+  .topbar-actions { gap: 6px; }
+  .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setting { grid-template-columns: 1fr; gap: 6px; }
   .snippet-options { grid-template-columns: minmax(0, 1fr); }
+  .footer__keys { display: none; }
 }
 
 /* -------------------------------------------------------------- empty states */
@@ -1971,7 +1936,7 @@ body[data-host="editor"] .shell {
 .footer {
   border-top: 1px solid var(--border);
   padding: 8px 0 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
   display: flex;
   justify-content: space-between;

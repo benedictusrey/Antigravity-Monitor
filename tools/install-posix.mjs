@@ -72,6 +72,11 @@ export function removeStartupEntries(locations, platform = process.platform, env
   }
 }
 
+function pluginInstallRoot(env = process.env, home = process.env.HOME || '') {
+  const geminiHome = env.GEMINI_HOME || path.join(home, '.gemini');
+  return path.join(geminiHome, 'config', 'plugins', 'antigravity-monitor');
+}
+
 export async function install(options = {}) {
   if (!['darwin', 'linux'].includes(process.platform)) throw new Error('Use Install Antigravity Monitor.cmd on Windows.');
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node.js 22 or newer is required.');
@@ -93,7 +98,9 @@ export async function install(options = {}) {
   await stopOwnProcess(existing);
   if (options.uninstall) {
     removeStartupEntries(locations);
-    console.log(`Startup disabled. Usage, settings, and runtime retained at ${locations.data} and ${locations.runtime}.`);
+    const pluginRoot = pluginInstallRoot();
+    if (fs.existsSync(pluginRoot)) fs.rmSync(pluginRoot, { recursive: true, force: true });
+    console.log(`Startup and Antigravity plugin disabled. Usage, settings, and runtime retained at ${locations.data} and ${locations.runtime}.`);
     return;
   }
   const backup = path.join(locations.data, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
@@ -110,6 +117,19 @@ export async function install(options = {}) {
       fs.rmSync(dest, { recursive: true, force: true });
     }
     fs.cpSync(path.join(source, name), dest, { recursive: true, force: true });
+  }
+  const pluginSource = path.join(source, 'plugin');
+  if (fs.existsSync(pluginSource)) {
+    const pluginRoot = pluginInstallRoot();
+    fs.mkdirSync(pluginRoot, { recursive: true });
+    fs.cpSync(pluginSource, pluginRoot, { recursive: true, force: true });
+    for (const name of required) {
+      const dest = path.join(pluginRoot, name);
+      if (fs.existsSync(dest) && fs.statSync(dest).isDirectory()) {
+        fs.rmSync(dest, { recursive: true, force: true });
+      }
+      fs.cpSync(path.join(source, name), dest, { recursive: true, force: true });
+    }
   }
   const shellQuote = value => "'" + value.replace(/'/g, "'\\''") + "'";
   const launcher = path.join(locations.data, process.platform === 'darwin' ? 'Open Antigravity Monitor.command' : 'open-monitor.sh');

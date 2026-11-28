@@ -26,6 +26,8 @@
     prevMetrics: new Map(),
     showDiagnostics: false,
     confirmRelaunch: false,
+    relaunchPending: null,
+    relaunchPendingTimer: null,
     refreshTimer: null,
     copyTimer: null,
   };
@@ -491,7 +493,9 @@
       subtitleNode.textContent = (app ? app + ' · ' : '') + snapshot.conversation.title + ws;
       subtitleNode.title = subtitleNode.textContent;
     } else if (snapshot.status === 'unauthorized') {
-      subtitleNode.textContent = 'Antigravity is running · its backend needs a request token this monitor cannot read';
+      subtitleNode.textContent = document.body.dataset.host === 'editor'
+        ? 'Antigravity IDE running · Waiting for monitor bridge'
+        : 'Antigravity running · Relaunch to connect';
     } else if (noBackend && (snapshot.status === 'disconnected' || snapshot.status === 'error')) {
       subtitleNode.textContent = 'Waiting for Antigravity to launch';
     } else if (snapshot.lastError) {
@@ -525,6 +529,13 @@
     const message = event.data;
     if (!message || message.type !== 'snapshot') return;
     state.snapshot = message.snapshot;
+    if (message.snapshot.status === 'ok') {
+      state.relaunchPending = null;
+      if (state.relaunchPendingTimer) {
+        clearTimeout(state.relaunchPendingTimer);
+        state.relaunchPendingTimer = null;
+      }
+    }
     setRefreshing(false);
     trackHistory(message.snapshot);
     renderChrome(message.snapshot);
@@ -603,6 +614,7 @@
       snapshot.badge,
       snapshot.appUpdate,
       state.confirmRelaunch,
+      state.relaunchPending,
       quotaView(snapshot), Math.floor(Date.now() / 60000),
       snapshot.lastError,
       snapshot.stale,
@@ -652,7 +664,7 @@
     const hasBackends = (snapshot.backends || []).length > 0;
     const hasDesktopApp = (snapshot.backends || []).some(function (b) { return b.app === 'app'; });
 
-    if (snapshot.lastError && hasBackends) {
+    if (snapshot.lastError && hasBackends && !(snapshot.status === 'unauthorized' && !conversation)) {
       pane.appendChild(el('div', { className: 'notice notice--error', text: snapshot.lastError }));
     }
     if (document.body.dataset.host === 'companion' && hasDesktopApp && snapshot.badge && snapshot.badge.state !== 'attached' && snapshot.badge.state !== 'disabled') {
@@ -712,6 +724,18 @@
                 },
               },
             }),
+            el('button', {
+              className: 'btn btn--small',
+              attrs: { type: 'button' },
+              text: 'Relaunch Antigravity IDE',
+              on: {
+                click: function () {
+                  state.rendered.delete('overview');
+                  send({ type: 'relaunchIde' });
+                  renderActivePane();
+                },
+              },
+            }),
           ]));
         }
       }
@@ -749,30 +773,79 @@
 
   function contextCellContent(snapshot, conversation, hasBackends) {
     if (!conversation || !conversation.usage) {
+      const host = document.body.dataset.host;
       const isNewThread = (snapshot.instances || []).some(function (i) {
         return i.backend.active && i.viewState === 'new-thread';
       });
       const unauthorized = snapshot.status === 'unauthorized';
+      const relaunchingApp = Boolean((snapshot.badge && snapshot.badge.relaunching) || state.relaunchPending === 'app');
+      const relaunchingIde = state.relaunchPending === 'ide';
+      const relaunching = relaunchingApp || relaunchingIde;
       const title = !conversation
-        ? (unauthorized ? 'Authorization needed' : !hasBackends ? 'Standby mode' : isNewThread ? 'New thread' : 'Waiting for a conversation')
+        ? (unauthorized ? (relaunchingApp ? 'Relaunching Antigravity…' : 'Authorization needed') : !hasBackends ? 'Standby mode' : isNewThread ? 'New thread' : 'Waiting for a conversation')
         : 'No usage reported yet';
       const body = !conversation
         ? (unauthorized
-          ? 'Antigravity is running, but its backend refuses requests without a token this monitor cannot read. Context and quota stay unavailable until that changes.'
+          ? (relaunchingApp
+            ? 'Relaunching Antigravity with DevTools enabled… Telemetry will reconnect automatically once the window finishes loading.'
+            : host === 'editor'
+              ? 'Antigravity IDE is running, and its backend requires a request token. Keep Antigravity Monitor running in the background or click Refresh now — no IDE relaunch needed.'
+              : 'Antigravity is running, but its backend requires a request token. Click Relaunch Antigravity to reconnect telemetry automatically.')
           : !hasBackends
           ? 'Antigravity is not running yet. Context and quota telemetry appear automatically the moment you launch it.'
           : isNewThread
             ? 'Ready in the composer. Context usage appears once the first response arrives.'
             : 'Open or start a thread in Antigravity to begin measuring context.')
         : 'Antigravity reports usage after the model produces a response. Readings update automatically.';
+      function startRelaunch(target) {
+        state.relaunchPending = target;
+        if (state.relaunchPendingTimer) clearTimeout(state.relaunchPendingTimer);
+        state.relaunchPendingTimer = setTimeout(function () {
+          state.relaunchPending = null;
+          state.relaunchPendingTimer = null;
+          state.rendered.delete('overview');
+          state.rendered.delete('settings');
+          renderActivePane();
+        }, 8000);
+        state.rendered.delete('overview');
+        state.rendered.delete('settings');
+        send({ type: target === 'ide' ? 'relaunchIde' : 'relaunchApp' });
+        renderActivePane();
+      }
+      const actions = [];
+      if (unauthorized && (host === 'companion' || host === 'mcp-app')) {
+        actions.push(
+          el('button', {
+            className: 'btn btn--small btn--primary',
+            attrs: relaunching ? { type: 'button', disabled: 'disabled', 'aria-busy': relaunchingApp ? 'true' : null } : { type: 'button' },
+            text: relaunchingApp ? 'Relaunching Antigravity…' : 'Relaunch Antigravity',
+            on: {
+              click: function () {
+                startRelaunch('app');
+              },
+            },
+          }),
+          el('button', {
+            className: 'btn btn--small',
+            attrs: relaunching ? { type: 'button', disabled: 'disabled', 'aria-busy': relaunchingIde ? 'true' : null } : { type: 'button' },
+            text: relaunchingIde ? 'Relaunching IDE…' : 'Relaunch IDE',
+            on: {
+              click: function () {
+                startRelaunch('ide');
+              },
+            },
+          }),
+        );
+      }
+      actions.push(
+        el('button', { className: 'btn btn--small', attrs: { type: 'button' }, text: 'Refresh now', on: { click: triggerRefresh } }),
+      );
       return [
         cellHead('Context window', (conversation && conversation.modelName) || snapshot.composerModelName || ''),
         el('div', { className: 'empty' }, [
           el('div', { className: 'empty__title', text: title }),
           el('div', { className: 'empty__body', text: body }),
-          el('div', { className: 'empty__actions' }, [
-            el('button', { className: 'btn btn--small', attrs: { type: 'button' }, text: 'Refresh now', on: { click: triggerRefresh } }),
-          ]),
+          el('div', { className: 'empty__actions' }, actions),
         ]),
       ];
     }
@@ -920,7 +993,16 @@
         if (!bucket) continue;
         const available = bucketAvailable(bucket, quota.status);
         const pct = available ? bucket.percent : null;
-        const bar = el('div', { className: 'bar' });
+        const bar = el('div', {
+          className: 'bar',
+          attrs: {
+            role: 'progressbar',
+            'aria-label': group.label + ' ' + (window === '5h' ? '5-hour' : 'Weekly') + ' quota remaining',
+            'aria-valuenow': String(Math.round(pct !== null ? pct : 0)),
+            'aria-valuemin': '0',
+            'aria-valuemax': '100',
+          },
+        });
         if (pct !== null) {
           const fill = el('div', { className: 'bar__fill', attrs: { 'data-band': bandOf(100 - pct, 80) } });
           applyFillRatio(fill, 'quota:' + group.id + ':' + window, pct);
@@ -1385,7 +1467,16 @@
         el('div', { className: 'list__value', text: session.percent === null ? '—' : fmtPercent(session.percent) }),
       ];
       if (session.percent !== null) {
-        const bar = el('div', { className: 'bar' });
+        const bar = el('div', {
+          className: 'bar',
+          attrs: {
+            role: 'progressbar',
+            'aria-label': session.title + ' context used',
+            'aria-valuenow': String(Math.round(session.percent)),
+            'aria-valuemin': '0',
+            'aria-valuemax': '100',
+          },
+        });
         const fill = el('div', { className: 'bar__fill', attrs: { 'data-band': bandOf(session.percent, snapshot.prefs.warningThreshold) } });
         applyFillRatio(fill, 'session:' + session.id, session.percent);
         bar.appendChild(fill);
@@ -1455,7 +1546,16 @@
           const bucket = (groupObj.buckets || []).find(function (b) { return b.window === win; });
           if (!bucket) continue;
           const ok = bucketAvailable(bucket, quota.status);
-          const bar = el('div', { className: 'bar' });
+          const bar = el('div', {
+            className: 'bar',
+            attrs: {
+              role: 'progressbar',
+              'aria-label': poolName + ' ' + (win === '5h' ? '5-hour' : 'Weekly') + ' quota remaining',
+              'aria-valuenow': String(Math.round(ok ? bucket.percent : 0)),
+              'aria-valuemin': '0',
+              'aria-valuemax': '100',
+            },
+          });
           if (ok) {
             const fill = el('div', { className: 'bar__fill', attrs: { 'data-band': bandOf(100 - bucket.percent, 80) } });
             applyFillRatio(fill, 'pool:' + groupObj.id + ':' + win, bucket.percent);
@@ -1491,7 +1591,16 @@
 
         const children = [head, meta];
         if (model.quotaPercent !== null && !groupObj) {
-          const bar = el('div', { className: 'bar' });
+          const bar = el('div', {
+            className: 'bar',
+            attrs: {
+              role: 'progressbar',
+              'aria-label': model.label + ' quota remaining',
+              'aria-valuenow': String(Math.round(model.quotaPercent)),
+              'aria-valuemin': '0',
+              'aria-valuemax': '100',
+            },
+          });
           const fill = el('div', { className: 'bar__fill', attrs: { 'data-band': bandOf(100 - model.quotaPercent, 80) } });
           applyFillRatio(fill, 'model:' + (model.modelId || model.label), model.quotaPercent);
           bar.appendChild(fill);
@@ -1543,20 +1652,39 @@
     ['snippetTokPerSec', 'Output tok/s', false],
   ];
 
-  function buildSnippetPreview(prefs) {
+  function buildSnippetPreview(prefs, snapshot) {
     const mode = prefs.displayMode || 'full';
+    const conv = snapshot && snapshot.conversation;
+    const usage = conv && conv.usage;
+    const ctxText = usage && usage.percent !== null
+      ? (usage.source === 'estimated' ? '~' : '') + fmtPercent(usage.percent)
+      : '22.3%';
+    const remText = usage && usage.remaining !== null ? fmtTokens(usage.remaining) + ' left' : '814.4k left';
+    const modelText = (snapshot && (snapshot.composerModelName || (conv && (conv.selectedModelName || conv.modelName)))) || 'Gemini 4 Hydrogen High';
+    const rateText = usage && usage.tokPerSec > 0 ? fmtRate(usage.tokPerSec) : '214 tok/s';
+    const activeGroup = snapshot && snapshot.quota && snapshot.quota.groups
+      ? snapshot.quota.groups.find(function (g) { return g.id === snapshot.activeQuotaGroupId; }) || snapshot.quota.groups[0]
+      : null;
+    const b5 = activeGroup && activeGroup.buckets ? activeGroup.buckets.find(function (b) { return b.window === '5h'; }) : null;
+    const bw = activeGroup && activeGroup.buckets ? activeGroup.buckets.find(function (b) { return b.window === 'weekly'; }) : null;
+    const fiveText = b5 && b5.percent !== null
+      ? '5h ' + fmtPercent(b5.percent) + (prefs.snippetResets && b5.resetsAt ? ' (' + fmtCountdown(b5.resetsAt) + ')' : '')
+      : '5h 94%' + (prefs.snippetResets ? ' (4h 04m)' : '');
+    const weekText = bw && bw.percent !== null
+      ? 'Week ' + fmtPercent(bw.percent) + (prefs.snippetResets && bw.resetsAt ? ' (' + fmtCountdown(bw.resetsAt) + ')' : '')
+      : 'Week 50%' + (prefs.snippetResets ? ' (5d 18h)' : '');
     const parts = [];
     if (mode === 'essentials') {
-      parts.push('22.3%');
+      parts.push(ctxText);
     } else if (mode === 'full') {
-      parts.push('22.3%', '814.4k left');
+      parts.push(ctxText, remText);
     } else {
-      if (prefs.snippetContext) parts.push('22.3%');
-      if (prefs.snippetRemaining) parts.push('814.4k left');
-      if (prefs.snippetFiveHour) parts.push('5h 94%' + (prefs.snippetResets ? ' (4h 04m)' : ''));
-      if (prefs.snippetWeekly) parts.push('Week 50%' + (prefs.snippetResets ? ' (5d 18h)' : ''));
-      if (prefs.snippetModel) parts.push('Gemini 4 Hydrogen High');
-      if (prefs.snippetTokPerSec) parts.push('214 tok/s');
+      if (prefs.snippetContext) parts.push(ctxText);
+      if (prefs.snippetRemaining) parts.push(remText);
+      if (prefs.snippetFiveHour) parts.push(fiveText);
+      if (prefs.snippetWeekly) parts.push(weekText);
+      if (prefs.snippetModel) parts.push(modelText);
+      if (prefs.snippetTokPerSec) parts.push(rateText);
     }
     return parts.length ? parts.join(' · ') : 'Monitor';
   }
@@ -1614,7 +1742,13 @@
           on: {
             change: function () {
               const parsed = Number(input.value);
-              if (isFinite(parsed)) send({ type: 'updateSetting', key: spec.key, value: parsed });
+              if (!isFinite(parsed)) {
+                input.value = String(value);
+                return;
+              }
+              const clamped = Math.min(spec.max, Math.max(spec.min, Math.round(parsed)));
+              input.value = String(clamped);
+              send({ type: 'updateSetting', key: spec.key, value: clamped });
             },
           },
         });
@@ -1640,7 +1774,7 @@
 
     const preview = el('div', { className: 'snippet-preview' }, [
       el('span', { className: 'dot dot--live' }),
-      el('span', { text: buildSnippetPreview(snapshot.prefs) }),
+      el('span', { text: buildSnippetPreview(snapshot.prefs, snapshot) }),
     ]);
 
     const snippets = el('div', { className: 'snippet-options' });
@@ -1649,12 +1783,10 @@
         attrs: { type: 'checkbox', id: 'setting-' + key },
         on: {
           change: function () {
-            const values = Object.fromEntries(SNIPPET_FIELDS.map(function (entry) {
-              return [entry[0], typeof snapshot.prefs[entry[0]] === 'boolean' ? snapshot.prefs[entry[0]] : entry[2]];
-            }));
-            values[key] = input.checked;
-            for (const [name, val] of Object.entries(values)) send({ type: 'updateSetting', key: name, value: val });
-            send({ type: 'updateSetting', key: 'displayMode', value: 'custom' });
+            send({ type: 'updateSetting', key: key, value: input.checked });
+            if (snapshot.prefs.displayMode !== 'custom') {
+              send({ type: 'updateSetting', key: 'displayMode', value: 'custom' });
+            }
           },
         },
       });
@@ -1716,8 +1848,28 @@
       ]),
     );
 
-    const actions = el('div', { className: 'panel__body actions-row' }, [
+    const host = document.body.dataset.host;
+    const relaunchDisabled = Boolean(snapshot.badge && snapshot.badge.relaunching);
+    const actionNodes = [
       el('button', { className: 'btn', attrs: { type: 'button' }, text: 'Refresh now', on: { click: triggerRefresh } }),
+    ];
+    if (host === 'companion' || host === 'mcp-app') {
+      actionNodes.push(
+        el('button', {
+          className: 'btn',
+          attrs: relaunchDisabled ? { type: 'button', disabled: 'disabled' } : { type: 'button' },
+          text: relaunchDisabled ? 'Relaunching Antigravity…' : 'Relaunch Antigravity',
+          on: { click: function () { send({ type: 'relaunchApp' }); } },
+        }),
+        el('button', {
+          className: 'btn',
+          attrs: relaunchDisabled ? { type: 'button', disabled: 'disabled' } : { type: 'button' },
+          text: 'Relaunch IDE',
+          on: { click: function () { send({ type: 'relaunchIde' }); } },
+        }),
+      );
+    }
+    actionNodes.push(
       el('button', {
         className: 'btn',
         attrs: { type: 'button' },
@@ -1731,7 +1883,8 @@
           },
         },
       }),
-    ]);
+    );
+    const actions = el('div', { className: 'panel__body actions-row' }, actionNodes);
 
     const diagNodes = [cellHead('Actions & diagnostics'), actions];
     if (state.showDiagnostics) {

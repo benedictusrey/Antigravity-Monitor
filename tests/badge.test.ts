@@ -206,7 +206,10 @@ test('candidate endpoints cover supported desktop and Insiders hosts in order', 
     endpoints.map((entry: any) => entry.app),
     ['app', 'ide', 'vscode', 'vscode'],
   );
-  assert.deepEqual(resolveCandidateEndpoints([], endpoints, () => null), [{ port: 9222, app: null }]);
+  assert.deepEqual(resolveCandidateEndpoints([], endpoints, () => null), [
+    { port: 9222, app: null },
+    { port: 9223, app: 'ide' },
+  ]);
   assert.deepEqual(resolveCandidateEndpoints([9222, 9223], endpoints, () => 9222), [
     { port: 9222, app: 'app' },
     { port: 9223, app: null },

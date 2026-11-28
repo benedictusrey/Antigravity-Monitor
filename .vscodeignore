@@ -16,6 +16,8 @@ preview/**
 tools/**
 docs/AUDIT.md
 docs/PROMPT.md
+Antigravity-Monitor_*.md
+Antigravity Monitor_*.md
 **/*.cmd
 .taste-skill/**
 .audit-temp/**
@@ -26,6 +28,7 @@ docs/superpowers/**
 **/*.sh
 **/*.command
 assets/**
+plugin/**
 .github/**
 release/**
 .gitattributes

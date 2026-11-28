@@ -1,6 +1,6 @@
 # Privacy
 
-Antigravity Monitor v1.3.0 observes local Antigravity state. It does not run a proxy, send analytics, or call a remote account service.
+Antigravity Monitor v1.4.0 observes local Antigravity state. It does not run a proxy, send analytics, or call a remote account service.
 
 ## What it reads
 
@@ -10,7 +10,7 @@ Conversation trajectories may contain user or assistant content. They are read i
 
 ## What it stores
 
-The companion stores display preferences and daily aggregate token totals in `state.json`. It also writes operational logs and installer backups. Native extensions keep preferences and usage in their editor's extension storage. See [USER_GUIDE.md](USER_GUIDE.md#storage-and-startup) for platform paths.
+The companion stores display preferences and 120-day aggregate daily token totals in `state.json`. It also writes operational logs and installer backups. Native extensions keep preferences and usage in their editor's extension storage. See [USER_GUIDE.md](USER_GUIDE.md#storage-and-startup) for platform paths.
 
 Snapshots contain conversation titles, model identity, usage figures, quota metadata, and connection information. Account name and email are masked in the default UI. Diagnostic logs can include conversation titles, ports, process IDs, and error details. Review them before sharing. The live-check development script can print titles.
 

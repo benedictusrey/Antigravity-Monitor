@@ -1,0 +1,18 @@
+{
+  "antigravity-monitor-session-bridge": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "node -e \"var f=require('fs'),p=require('path'),o=require('os'),u=require('url'),e=process.env,h='',hit=0;try{h=o.homedir()}catch(x){}for(var d of[e.PLUGIN_ROOT,e.AGY_PLUGIN_ROOT,e.GEMINI_HOME?p.join(e.GEMINI_HOME,'config','plugins','antigravity-monitor'):'',h?p.join(h,'.gemini','config','plugins','antigravity-monitor'):'',p.join('.agents','plugins','antigravity-monitor'),'.']){if(d){var s=p.resolve(d,'tools','plugin-session-hook.mjs');if(f.existsSync(s)){hit=1;import(u.pathToFileURL(s).href).catch(function(){process.stdout.write('{}')});break;}}}if(hit===0)process.stdout.write('{}')\"",
+        "timeout": 3
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node -e \"var f=require('fs'),p=require('path'),o=require('os'),u=require('url'),e=process.env,h='',hit=0;try{h=o.homedir()}catch(x){}for(var d of[e.PLUGIN_ROOT,e.AGY_PLUGIN_ROOT,e.GEMINI_HOME?p.join(e.GEMINI_HOME,'config','plugins','antigravity-monitor'):'',h?p.join(h,'.gemini','config','plugins','antigravity-monitor'):'',p.join('.agents','plugins','antigravity-monitor'),'.']){if(d){var s=p.resolve(d,'tools','plugin-session-hook.mjs');if(f.existsSync(s)){hit=1;import(u.pathToFileURL(s).href).catch(function(){process.stdout.write('{}')});break;}}}if(hit===0)process.stdout.write('{}')\"",
+        "timeout": 3
+      }
+    ]
+  }
+}

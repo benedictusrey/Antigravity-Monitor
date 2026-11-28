@@ -6,6 +6,7 @@
 
 import type { AccountInfo } from '../core/models';
 import type { DisplayMode } from '../core/presentation';
+import type { BackendOwner } from '../core/rpc';
 import type { ConversationStatus } from '../core/select';
 import type { UsageDay, UsageSummary } from '../core/usage';
 import type { QuotaState } from '../core/quota';
@@ -194,5 +195,57 @@ export function emptySnapshot(prefs: SnapshotPrefs): Snapshot {
     lastError: null,
     discoveryNotes: [],
     stale: false,
+  };
+}
+
+/**
+ * Re-center a live companion snapshot on the editor host's own backend so
+ * Antigravity IDE never shows Desktop's conversation or impersonates it when
+ * its own backend is unreachable.
+ */
+export function projectCompanionSnapshot(
+  companion: Snapshot | null | undefined,
+  hostApp: BackendOwner,
+  localPrefs: SnapshotPrefs,
+): Snapshot | null {
+  if (!companion || (companion.status !== 'ok' && companion.status !== 'no-conversation')) {
+    return null;
+  }
+  const instances = Array.isArray(companion.instances) ? companion.instances : [];
+  const match = instances.find((entry) => entry.backend?.app === hostApp && entry.backend.reachable);
+  if (!match) {
+    return hostApp === 'unknown' || companion.backend?.app === hostApp
+      ? { ...companion, prefs: localPrefs }
+      : null;
+  }
+  const activeBackendId = match.backend.id;
+  const activeConversationId = match.conversation?.id ?? null;
+  const backends = (companion.backends ?? []).map((backend) => ({
+    ...backend,
+    active: backend.id === activeBackendId,
+  }));
+  const orderedInstances = [match, ...instances.filter((entry) => entry !== match)];
+  const hostSessions = (companion.sessions ?? []).filter(
+    (session) => session.backendId === activeBackendId || session.app === hostApp,
+  );
+  const otherSessions = (companion.sessions ?? []).filter(
+    (session) => session.backendId !== activeBackendId && session.app !== hostApp,
+  );
+  const sessions = [...hostSessions, ...otherSessions].map((session) => ({
+    ...session,
+    active: activeConversationId !== null && session.id === activeConversationId,
+  }));
+  return {
+    ...companion,
+    status: match.status,
+    backend: { ...match.backend, active: true },
+    backends,
+    instances: orderedInstances,
+    conversation: match.conversation,
+    composerModelName: match.composerModelName ?? companion.composerModelName ?? null,
+    quota: match.quota ?? companion.quota,
+    sessions,
+    prefs: localPrefs,
+    lastError: null,
   };
 }

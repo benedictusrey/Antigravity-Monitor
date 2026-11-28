@@ -111,6 +111,7 @@ interface InstanceState {
   /** Conversation the host's own window has open, reported by the badge bridge. */
   observedConversationId: string | null;
   observedModelName?: string | null;
+  observedTitle?: string | null;
   observationState?: 'conversation' | 'new-thread' | 'unknown';
   observedAt?: number;
   previousStepCounts: Map<string, number>;
@@ -142,6 +143,13 @@ export class Monitor {
   private readonly quotaRetries = new Map<string, { failures: number; at: number }>();
   /** Memory-only per-port tokens supplied by an attached renderer when CLI args omit one. Never logged or persisted. */
   private readonly tokensByPort = new Map<number, string>();
+  /** Memory-only explicit targets supplied from local env/plugin hook. Never logged or persisted. */
+  private readonly suppliedTargets = new Map<number, BackendTarget>();
+  /** Observations received before a backend instance finishes initial discovery. */
+  private readonly pendingObservations = new Map<
+    number,
+    { conversationId: string | null; viewState: 'conversation' | 'new-thread' | 'unknown'; modelName: string | null; pageTitle: string | null; observedAt: number }
+  >();
 
   private statuses = new Map<string, BackendStatus>();
   private readonly instances = new Map<string, InstanceState>();
@@ -206,6 +214,8 @@ export class Monitor {
     this.quotaAborter?.abort();
     this.quotaAborter = null;
     this.tokensByPort.clear();
+    this.suppliedTargets.clear();
+    this.pendingObservations.clear();
   }
 
   /** Wake discovery immediately when a local app or DevTools endpoint appears. */
@@ -340,6 +350,43 @@ export class Monitor {
   }
 
   /**
+   * Register an explicit loopback target and token supplied by an Antigravity plugin or environment variables.
+   * Stored in memory only (never logged or persisted).
+   */
+  provideTarget(
+    backendPort: number,
+    token: string,
+    scheme: 'http' | 'https' = 'http',
+    owner: BackendOwner = 'app',
+  ): void {
+    if (this.disposed || !Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535) {
+      return;
+    }
+    if (typeof token !== 'string' || token.length === 0 || token.length > 512 || /\s/.test(token)) {
+      return;
+    }
+    if (scheme !== 'http' && scheme !== 'https') {
+      return;
+    }
+    this.suppliedTargets.set(backendPort, {
+      id: `hub:${backendPort}`,
+      kind: 'hub',
+      scheme,
+      host: '127.0.0.1',
+      port: backendPort,
+      token,
+      pid: null,
+      appDataDir: null,
+      owner,
+    });
+    this.provideToken(backendPort, token);
+    const hasInstance = [...this.instances.values()].some((inst) => inst.target.port === backendPort);
+    if (!hasInstance) {
+      this.nudgeDiscovery();
+    }
+  }
+
+  /**
    * Supply a memory-only request token observed from an attached renderer on the same loopback port.
    * Newer Antigravity builds omit `--csrf_token` from the language server CLI; this unblocks polling immediately.
    */
@@ -389,6 +436,7 @@ export class Monitor {
     conversationId: string | null,
     viewState: 'conversation' | 'new-thread' | 'unknown' = conversationId ? 'conversation' : 'new-thread',
     modelName: string | null = null,
+    pageTitle: string | null = null,
   ): void {
     if (!Number.isInteger(backendPort)) {
       return;
@@ -396,28 +444,63 @@ export class Monitor {
     if (conversationId !== null && (typeof conversationId !== 'string' || conversationId.length === 0)) {
       return;
     }
-    const instance = [...this.instances.values()].find((candidate) => candidate.target.port === backendPort);
-    if (!instance) {
-      return;
-    }
     const normalizedModel = typeof modelName === 'string' && modelName.trim().length > 0 ? modelName.trim() : null;
+    const normalizedTitle = typeof pageTitle === 'string' && pageTitle.trim().length > 0 ? pageTitle.trim() : null;
     if (normalizedModel && !matchModelByName(normalizedModel, this.catalog, this.picker)) {
       this.lastStatusRefresh = 0;
     }
+    const instance = [...this.instances.values()].find((candidate) => candidate.target.port === backendPort);
+    if (!instance) {
+      this.pendingObservations.set(backendPort, {
+        conversationId,
+        viewState,
+        modelName: normalizedModel,
+        pageTitle: normalizedTitle,
+        observedAt: Date.now(),
+      });
+      return;
+    }
+    this.pendingObservations.delete(backendPort);
     instance.observedAt = Date.now();
     if (
       instance.observedConversationId === conversationId &&
       instance.observationState === viewState &&
-      (instance.observedModelName ?? null) === normalizedModel
+      (instance.observedModelName ?? null) === normalizedModel &&
+      (instance.observedTitle ?? null) === normalizedTitle
     ) return;
     instance.observedConversationId = conversationId;
     instance.observationState = viewState;
     instance.observedModelName = normalizedModel;
+    instance.observedTitle = normalizedTitle;
     if (conversationId === null) {
-      // An observed empty page must clear the previous selection immediately.
-      instance.activeConversationId = null;
+      if (viewState === 'unknown' && normalizedTitle) {
+        const matched = matchConversationByTitle(instance.conversations, normalizedTitle);
+        if (matched) {
+          instance.activeConversationId = matched.id;
+          if (!this.inFlightSteps.has(matched.id)) {
+            const cached = this.analysisCache.get(matched.id);
+            if (!cached || cached.signature !== signatureOf(matched)) {
+              void this.refreshAnalysis(instance.target, matched, this.analysisAborter.signal)
+                .then(() => { if (!this.disposed) this.publish(); })
+                .catch(() => undefined);
+            }
+          }
+        }
+      } else {
+        // An observed empty page must clear the previous selection immediately.
+        instance.activeConversationId = null;
+      }
     } else {
       instance.activeConversationId = conversationId;
+      const known = instance.conversations.find((candidate) => candidate.id === conversationId);
+      if (known && !this.inFlightSteps.has(known.id)) {
+        const cached = this.analysisCache.get(known.id);
+        if (!cached || cached.signature !== signatureOf(known)) {
+          void this.refreshAnalysis(instance.target, known, this.analysisAborter.signal)
+            .then(() => { if (!this.disposed) this.publish(); })
+            .catch(() => undefined);
+        }
+      }
     }
     this.publish();
     this.schedule(0);
@@ -584,12 +667,16 @@ export class Monitor {
         conversations.some((conversation) => conversation.id === this.pinnedConversationId)
           ? this.pinnedConversationId
           : null;
-      if (observationFresh && state.observationState !== 'conversation' && !pinned) {
+      if (observationFresh && state.observationState !== 'conversation' && !(state.observationState === 'unknown' && state.observedTitle) && !pinned) {
         state.activeConversationId = null;
         return;
       }
-      const observed = observationFresh && state.observedConversationId
-        ? conversations.find((conversation) => conversation.id === state.observedConversationId) ?? null
+      const observed = observationFresh
+        ? state.observedConversationId
+          ? conversations.find((conversation) => conversation.id === state.observedConversationId) ?? null
+          : state.observedTitle
+            ? matchConversationByTitle(conversations, state.observedTitle)
+            : null
         : null;
       const selection = chooseConversation(conversations, state.previousStepCounts, pinned ?? state.activeConversationId);
       const conversation =
@@ -771,11 +858,15 @@ export class Monitor {
       const processes = await runDiscovery(this.deps.logger);
       if (this.disposed || generation !== this.generation) return;
       const { targets: rawTargets, notes } = toBackendTargets(processes);
-      const targets = rawTargets.map((target) => {
-        if (target.token) return target;
-        const supplied = this.tokensByPort.get(target.port);
-        return supplied ? { ...target, token: supplied } : target;
-      });
+      const discoveredPorts = new Set(rawTargets.map((target) => target.port));
+      const targets = [
+        ...rawTargets.map((target) => {
+          if (target.token) return target;
+          const supplied = this.tokensByPort.get(target.port);
+          return supplied ? { ...target, token: supplied } : target;
+        }),
+        ...[...this.suppliedTargets.values()].filter((target) => !discoveredPorts.has(target.port)),
+      ];
       this.discoveryNotes = notes;
 
       if (targets.length === 0) {
@@ -841,12 +932,18 @@ export class Monitor {
         }
       } else {
         backendTopologyChanged = true;
+        const pending = this.pendingObservations.get(target.port);
+        if (pending) this.pendingObservations.delete(target.port);
         this.instances.set(status.id, {
           target,
           status,
           conversations: [],
-          activeConversationId: null,
-          observedConversationId: null,
+          activeConversationId: pending ? pending.conversationId : null,
+          observedConversationId: pending ? pending.conversationId : null,
+          observationState: pending ? pending.viewState : undefined,
+          observedModelName: pending ? pending.modelName : undefined,
+          observedTitle: pending ? pending.pageTitle : undefined,
+          observedAt: pending ? pending.observedAt : undefined,
           previousStepCounts: new Map(),
           retryAt: status.reachable ? 0 : Date.now() + 15_000,
         });
@@ -1415,6 +1512,26 @@ export interface FetchDecisionInput {
   lastFetchAt: number;
   now: number;
   floorMs: number;
+}
+
+/** Match a renderer document title (for extensionView hosts without route IDs) to a conversation title. */
+export function matchConversationByTitle(
+  conversations: readonly TrajectorySummary[],
+  pageTitle: string | null | undefined,
+): TrajectorySummary | null {
+  const clean = typeof pageTitle === 'string' ? pageTitle.trim() : '';
+  if (!clean) return null;
+  let best: TrajectorySummary | null = null;
+  for (const candidate of conversations) {
+    const title = typeof candidate.title === 'string' ? candidate.title.trim() : '';
+    if (!title) continue;
+    if (clean === title || clean.startsWith(`${title} - `) || clean.startsWith(`${title} — `)) {
+      if (!best || title.length > best.title.length) {
+        best = candidate;
+      }
+    }
+  }
+  return best;
 }
 
 /**

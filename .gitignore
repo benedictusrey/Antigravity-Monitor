@@ -1,5 +1,7 @@
 node_modules/
 out/
+media/mcp-app-bridge.js
+media/mcp-app-bridge.js
 *.vsix
 *.exe
 *.log
@@ -12,4 +14,5 @@ release/
 docs/VALIDATION-*.md
 docs/superpowers/
 docs/PROMPT.md
-Antigravity-Monitor_v1.3.0.md
+Antigravity-Monitor_*.md
+Antigravity Monitor_*.md

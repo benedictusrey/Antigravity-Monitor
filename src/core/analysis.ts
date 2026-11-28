@@ -270,17 +270,19 @@ function computeTokPerSec(
   if (!Number.isFinite(finishedMs)) {
     return null;
   }
-  // `viewableAt` marks TTFT (when output streaming begins, inclusive of thinking), so `finishedGeneratingAt - viewableAt`
-  // is the decode window for all `output` tokens. Sub-500ms windows fall through to full turn time to avoid quantization spikes.
+  // `viewableAt` marks when visible text begins streaming; sub-second windows on buffered tool calls produce false spikes.
   const viewableIso = asString(metadata.viewableAt);
   const viewableMs = viewableIso ? Date.parse(viewableIso) : NaN;
-  if (Number.isFinite(viewableMs) && finishedMs - viewableMs >= 500) {
+  if (Number.isFinite(viewableMs) && finishedMs - viewableMs >= 1000) {
     return Math.round((output / ((finishedMs - viewableMs) / 1000)) * 10) / 10;
   }
-  const startIso = asString(metadata.startedAt) ?? asString(metadata.createdAt);
-  const startMs = startIso ? Date.parse(startIso) : NaN;
-  if (Number.isFinite(startMs) && finishedMs - startMs >= 250) {
-    return Math.round((output / ((finishedMs - startMs) / 1000)) * 10) / 10;
+  // `startedAt` often equals `finishedGeneratingAt` on live Antigravity builds, so try each start candidate with a >=250ms span.
+  for (const key of ['startedAt', 'createdAt'] as const) {
+    const startIso = asString(metadata[key]);
+    const startMs = startIso ? Date.parse(startIso) : NaN;
+    if (Number.isFinite(startMs) && finishedMs - startMs >= 250) {
+      return Math.round((output / ((finishedMs - startMs) / 1000)) * 10) / 10;
+    }
   }
   return null;
 }

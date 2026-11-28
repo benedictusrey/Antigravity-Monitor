@@ -20,7 +20,7 @@ import { BackendOwner } from '../core/rpc';
 
 import { Monitor } from './monitor';
 import { DashboardPanel } from './panel';
-import { Snapshot } from './snapshot';
+import { Snapshot, projectCompanionSnapshot } from './snapshot';
 import { StatusBar } from './statusbar';
 import { Store } from './store';
 import { APP_NAME, COMMANDS, CONFIG_SECTION, OUTPUT_CHANNEL_NAME, STRINGS } from './strings';
@@ -30,6 +30,9 @@ let store: Store | undefined;
 let monitor: Monitor | undefined;
 let statusBar: StatusBar | undefined;
 let panel: DashboardPanel | undefined;
+let latestSnapshot: Snapshot | undefined;
+let companionTimer: NodeJS.Timeout | undefined;
+let companionActive = false;
 
 const quotaState = new Map<string, boolean>();
 
@@ -56,29 +59,36 @@ export function activate(context: vscode.ExtensionContext): void {
   monitor.restorePinnedConversation(store.pinnedConversationId);
 
   const callbacks = {
-    onRefresh: () => monitor?.refreshNow(),
+    onRefresh: () => {
+      monitor?.refreshNow();
+      if (companionActive) postCompanionCommand({ type: 'refresh' });
+    },
     onSelectBackend: (id: string) => {
       void store?.setPinnedBackendId(id);
       monitor?.selectBackend(id);
+      if (companionActive) postCompanionCommand({ type: 'selectBackend', id });
     },
     onSelectSession: (id: string | null) => {
       void store?.setPinnedConversationId(id);
       monitor?.pinConversation(id);
+      if (companionActive) postCompanionCommand({ type: 'selectSession', id });
     },
     onShowDiagnostics: () => output?.show(true),
     onUpdateSetting: (key: SettingKey, value: string | number | boolean) => {
       void updateSetting(key, value);
+      if (companionActive) postCompanionCommand({ type: 'updateSetting', key, value });
     },
   };
 
   context.subscriptions.push(
     vscode.commands.registerCommand(COMMANDS.openDashboard, () => {
       panel = DashboardPanel.show(context, callbacks);
-      panel.update(monitor!.getSnapshot());
+      panel.update(latestSnapshot ?? monitor!.getSnapshot());
     }),
 
     vscode.commands.registerCommand(COMMANDS.refresh, () => {
       monitor?.refreshNow();
+      if (companionActive) postCompanionCommand({ type: 'refresh' });
       void vscode.window.setStatusBarMessage('Antigravity Monitor: refreshed', 2000);
     }),
 
@@ -92,7 +102,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       monitor?.updatePreferences();
       if (panel) {
-        panel.update(monitor!.getSnapshot());
+        panel.update(latestSnapshot ?? monitor!.getSnapshot());
       }
     }),
 
@@ -148,9 +158,92 @@ function ensureCompanionRunning(): void {
 }
 
 function onSnapshot(snapshot: Snapshot): void {
+  if (snapshot.status === 'ok' || snapshot.status === 'no-conversation') {
+    stopCompanionBridge();
+    latestSnapshot = snapshot;
+    statusBar?.update(snapshot);
+    panel?.update(snapshot);
+    maybeWarnAboutQuota(snapshot);
+    return;
+  }
+  if (snapshot.status === 'unauthorized' || snapshot.status === 'disconnected') {
+    startCompanionBridge();
+  }
+  if (companionActive && latestSnapshot) {
+    return;
+  }
+  latestSnapshot = snapshot;
   statusBar?.update(snapshot);
   panel?.update(snapshot);
   maybeWarnAboutQuota(snapshot);
+}
+
+function startCompanionBridge(): void {
+  if (process.env.NODE_TEST_CONTEXT || companionTimer) return;
+  const interval = Math.max(1000, store?.config.pollIntervalMs ?? 2000);
+  void pollCompanion();
+  companionTimer = setInterval(() => void pollCompanion(), interval);
+  companionTimer.unref?.();
+}
+
+function stopCompanionBridge(): void {
+  companionActive = false;
+  if (!companionTimer) return;
+  clearInterval(companionTimer);
+  companionTimer = undefined;
+}
+
+function pollCompanion(): Promise<void> {
+  return new Promise((resolve) => {
+    const req = http.get('http://127.0.0.1:4599/api/snapshot', { timeout: 1500 }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => {
+        try {
+          if (res.statusCode !== 200 || !store) return;
+          const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { snapshot?: Snapshot };
+          const projected = projectCompanionSnapshot(payload.snapshot, hostOwner(), store.config);
+          if (!projected) return;
+          companionActive = true;
+          latestSnapshot = projected;
+          statusBar?.update(projected);
+          panel?.update(projected);
+          maybeWarnAboutQuota(projected);
+        } catch {
+          // Companion may still be initializing.
+        } finally {
+          resolve();
+        }
+      });
+    });
+    req.on('error', () => resolve());
+    req.on('timeout', () => {
+      req.destroy();
+      resolve();
+    });
+  });
+}
+
+function postCompanionCommand(message: Record<string, unknown>): void {
+  if (process.env.NODE_TEST_CONTEXT) return;
+  try {
+    const body = JSON.stringify(message);
+    const req = http.request(
+      'http://127.0.0.1:4599/api/command',
+      {
+        method: 'POST',
+        timeout: 1500,
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+      },
+      (res) => res.resume(),
+    );
+    req.on('error', () => {});
+    req.on('timeout', () => req.destroy());
+    req.write(body);
+    req.end();
+  } catch {
+    // Best-effort forwarding.
+  }
 }
 
 /**
@@ -251,6 +344,8 @@ function emptyUsage() {
 }
 
 function disposeAll(): void {
+  stopCompanionBridge();
+  latestSnapshot = undefined;
   monitor?.stop();
   statusBar?.dispose();
   store?.dispose();

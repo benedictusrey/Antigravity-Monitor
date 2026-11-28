@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import { installPaths } from './platform.mjs';
 const { SNIPPET_DEFAULTS } = createRequire(import.meta.url)('../out/src/core/snippet.js');
+const { recentDayKeys } = createRequire(import.meta.url)('../out/src/core/format.js');
 
 const VERSION = 1;
 
@@ -97,14 +98,19 @@ export function mergeConfig(defaults, stored) {
   return next;
 }
 
-/** Drop buckets whose numbers are not finite non-negative values. */
-export function sanitiseBuckets(raw) {
+/** Drop buckets whose numbers are not finite non-negative values or older than `maxDays`. */
+export function sanitiseBuckets(raw, maxDays = 120) {
   const buckets = new Map();
   if (!isRecord(raw)) {
     return buckets;
   }
+  const cutoff = recentDayKeys(maxDays)[0];
   for (const [key, value] of Object.entries(raw)) {
     if (!isRecord(value)) {
+      continue;
+    }
+    const sep = key.indexOf('|');
+    if (sep > 0 && key.slice(0, sep) < cutoff) {
       continue;
     }
     const read = (field) => {

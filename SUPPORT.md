@@ -1,6 +1,6 @@
 # Support
 
-Start with the [user guide](USER_GUIDE.md) and [known limits](README.md#known-limits). Antigravity Monitor v1.3.0 depends on local interfaces that can change when the monitored apps update.
+Start with the [user guide](USER_GUIDE.md) and [known limits](README.md#known-limits). Antigravity Monitor v1.4.0 depends on local interfaces that can change when the monitored apps update.
 
 ## Report a reproducible issue
 

@@ -1,6 +1,6 @@
-# Preparing the v1.3.0 release
+# Preparing the v1.4.0 release
 
-All current project packages and release documents use **v1.3.0**. Dependency versions retain upstream values. Banner artwork is deliberately version-free; refresh actual UI captures when product behavior changes.
+All current project packages and release documents use **v1.4.0**. Dependency versions retain upstream values. Banner artwork is deliberately version-free; refresh actual UI captures when product behavior changes.
 
 ## Validate
 
@@ -20,20 +20,20 @@ On Windows, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts
 
 ## Upload-ready files
 
-The prepared release folder (`release/v1.3.0/`) contains:
+The prepared release folder (`release/v1.4.0/`) contains:
 
-- `Antigravity-Monitor-1.3.0-windows.zip`, `Antigravity-Monitor-1.3.0-macos.zip`, `Antigravity-Monitor-1.3.0-linux.zip`: OS-specific universal installer bundles with POSIX executable permissions preserved on macOS/Linux archives.
-- `Antigravity-Monitor-1.3.0-companion.zip`: complete compiled companion, installers, launcher files, native VSIX, and user documentation. It requires Node.js 22 or newer.
-- `antigravity-monitor-1.3.0.vsix`: native editor extension.
-- `Antigravity-Monitor-1.3.0-source.zip`: public source snapshot.
+- `Antigravity-Monitor-1.4.0-windows.zip`, `Antigravity-Monitor-1.4.0-macos.zip`, `Antigravity-Monitor-1.4.0-linux.zip`: OS-specific universal installer bundles with POSIX executable permissions preserved on macOS/Linux archives.
+- `Antigravity-Monitor-1.4.0-companion.zip`: complete compiled companion, bundled Antigravity plugin, installers, launcher/uninstaller files, native VSIX, and user documentation. It requires Node.js 22 or newer.
+- `antigravity-monitor-1.4.0.vsix`: native editor extension.
+- `Antigravity-Monitor-1.4.0-source.zip`: public source snapshot.
 - `SHA256SUMS.txt`: hashes of all downloadable packages.
 - `RELEASE_NOTES.md`: text prepared for the GitHub release body.
-- `staging/`: unpacked `repository/` snapshot and compiled `Antigravity-Monitor-1.3.0/` runtime directory used to assemble the archives.
+- `staging/`: unpacked `repository/` snapshot and compiled `Antigravity-Monitor-1.4.0/` runtime directory used to assemble the archives.
 
 Do not upload `node_modules`, local state, logs, raw process records, trajectories, downloaded app bundles, private audit workspaces, or backup folders. Runtime and source ZIPs have different purposes; source needs `npm ci` and compilation, while the runtime ZIP includes compiled files.
 
 ## Publish
 
-Create or use `benedictusrey/Antigravity-Monitor`, upload the contents of `staging/repository`, and review the Markdown and image links on GitHub. Create tag **v1.3.0** at the intended source commit, paste the release notes, and attach the package files plus checksums. Enable private vulnerability reporting if available.
+Create or use `benedictusrey/Antigravity-Monitor`, upload the contents of `staging/repository`, and review the Markdown and image links on GitHub. Create tag **v1.4.0** at the intended source commit, paste the release notes, and attach the package files plus checksums. Enable private vulnerability reporting if available.
 
 Preparing these files does not create a repository, tag, or public release. Publication is a separate maintainer action. Preserve backups and the exact checksum file that belongs to the uploaded assets.
